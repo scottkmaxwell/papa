@@ -1,0 +1,15 @@
+*.pyc
+__pycache__
+build
+/papa.egg-info
+dist
+/env??
+/.idea/*
+!/.idea/.name
+!/.idea/gjslint.conf
+!/.idea/jsLinters/
+!/.idea/dictionaries/
+!/.idea/other.xml
+!/.idea/testrunner.xml
+!/.idea/encodings.xml
+!/.idea/vcs.xml
