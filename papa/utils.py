@@ -2,43 +2,20 @@ import socket
 
 __author__ = 'Scott Maxwell'
 
+valid_families = dict((name[3:].lower(), getattr(socket, name))
+                      for name in dir(socket)
+                      if name.startswith('AF_') and getattr(socket, name))
+valid_families_by_number = dict((value, name)
+                                for name, value in valid_families.items())
+valid_types = dict((name[5:].lower(), getattr(socket, name))
+                   for name in dir(socket)
+                   if name.startswith('SOCK_'))
+valid_types_by_number = dict((value, name)
+                             for name, value in valid_types.items())
+
 
 class Error(RuntimeError):
     pass
-
-protocol_map = {
-    (socket.AF_INET, socket.SOCK_STREAM): 'tcp',
-    (socket.AF_INET, socket.SOCK_DGRAM): 'udp',
-}
-
-if not hasattr(socket, 'AF_UNIX'):
-    protocol_map[(socket.AF_UNIX, socket.SOCK_STREAM)] = 'unix'
-
-valid_protocols = frozenset(protocol_map.values())
-
-
-def decode_socket_url(url):
-    proto, location = url.partition(':')[::2]
-    proto = proto.lower()
-    if proto not in valid_protocols:
-        raise Error('Unknown protocol: %s (must be %s)' % (proto, ', '.join(valid_protocols)))
-    while location and location[0] == '/':
-        location = location[1:]
-    if not location:
-        raise Error('Bad location: %s' % location)
-    if proto == 'unix':
-        location = '/' + location
-    else:
-        host, port = location.partition(':')[::2]
-        try:
-            port = int(port)
-        except Exception:
-            raise RuntimeError('Must specify a numeric port. For example: %s:%s:8888' % (proto, host))
-
-        if not host:
-            host = '127.0.0.1'
-        location = (host, port)
-    return proto, location
 
 
 def partition_and_strip(text, delimiter=' '):

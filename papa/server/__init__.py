@@ -44,7 +44,7 @@ def processes_command(sock, args):
     lines = []
     for name, proc_list in processes_by_name.items():
         for info in proc_list:
-            lines.append('process %s %s (%d)' % (name, info.name, info.pid))
+            lines.append('process {0} {1} ({2}})'.format(name, info.name, info.pid))
     return '\n'.join(lines) if lines else 'No processes'
 
 
@@ -92,7 +92,7 @@ def help_command(sock, args):
     if args:
         help_for = lookup_command(args)
         if not help_for:
-            return '"%s" is an unknown command\n' % help_for
+            return '"{0}" is an unknown command\n'.format(help_for)
         return help_for.__doc__
     return b"""Possible commands are:
     socket - Create a socket to be used by processes
@@ -136,18 +136,21 @@ def chat_with_a_client(sock, addr, container):
         sock.send(b'Papa is home. Type "help" for commands.\n> ')
 
         done = False
+        data = b''
         while not done:
-            data = b''
-            while not data.endswith(b'\n'):
+            while not b'\n' in data:
                 new_data = sock.recv(1024)
                 if not new_data:
                     done = True
-                    continue
+                    break
                 data += new_data
+            if done:
+                break
 
-            data = data.decode()
-            data = data.strip()
-            cmd, args = partition_and_strip(data)
+            one_line, data = data.partition(b'\n')[::2]
+            one_line = one_line.decode()
+            one_line = one_line.strip()
+            cmd, args = partition_and_strip(one_line)
             cmd = cmd.lower()
             if cmd:
                 command = lookup_command(cmd)
@@ -156,7 +159,7 @@ def chat_with_a_client(sock, addr, container):
                     if not reply:
                         break
                 else:
-                    reply = '"%s" is an unknown command\n' % cmd
+                    reply = '"{0}" is an unknown command\n'.format(cmd)
 
                 if isinstance(reply, str):
                     reply = reply.encode()
@@ -180,19 +183,37 @@ def chat_with_a_client(sock, addr, container):
     inactive_threads.append((addr, thread_object))
 
 
-def socket_server(connection_string):
+def socket_server(port_or_path):
     try:
-        s = papa_socket.make_socket(connection_string)[0]
+        if isinstance(port_or_path, str):
+            try:
+                os.unlink(port_or_path)
+            except OSError:
+                if os.path.exists(port_or_path):
+                    raise
+            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            try:
+                s.bind(port_or_path)
+            except socket.error as e:
+                raise Error('Bind failed: {0}'.format(e))
+        else:
+            location = ('127.0.0.1', port_or_path)
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                s.bind(location)
+            except socket.error as e:
+                raise Error('Bind failed or port {0}: {1}'.format(port_or_path, e))
     except Exception as e:
         log.error(e)
         sys.exit(1)
 
-    s.listen(10)
+    s.listen(5)
     log.info('Listening')
     while True:
         try:
             sock, addr = s.accept()
-            log.info('Connected with %s:%d', addr[0], addr[1])
+            log.info('Started client session with %s:%d', addr[0], addr[1])
             container = []
             t = Thread(target=chat_with_a_client, args=(sock, addr, container))
             container.append(t)
@@ -204,14 +225,14 @@ def socket_server(connection_string):
             while inactive_threads:
                 addr, t = inactive_threads.pop()
                 t.join()
-                log.info('Closed %s: %d', addr[0], addr[1])
+                log.info('Closed client session with %s:%d', addr[0], addr[1])
             if not active_threads:
                 s.settimeout(None)
 
     s.close()
 
 
-def daemonize_server(connection_string):
+def daemonize_server(port_or_path):
     process_id = os.fork()
     if process_id < 0:
         raise Error('Unable to fork')
@@ -239,18 +260,19 @@ def daemonize_server(connection_string):
     os.dup2(devnull_fd, 2)
     os.umask(0o27)
     os.chdir('/')
-    socket_server(connection_string)
+    socket_server(port_or_path)
 
 
 def main():
     parser = ArgumentParser('papa', description='A simple parent process for sockets and other processes')
     parser.add_argument('-d', '--debug', action='store_true', help='run in debug mode')
-    parser.add_argument('-s', '--socket', default='tcp://localhost:20202', help='socket to bind')
+    parser.add_argument('-u', '--unix-socket', help='path to unix socket to bind')
+    parser.add_argument('-p', '--port', default=20202, type=int, help='port to bind on localhost (default 20202)')
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO if args.debug else logging.ERROR)
     try:
-        socket_server(connection_string=args.socket)
+        socket_server(args.unix_socket or args.port)
     except Exception as e:
         log.error(e)
 
