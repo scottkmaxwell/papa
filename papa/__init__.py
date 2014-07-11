@@ -52,42 +52,35 @@ class Papa(object):
 
     def _attempt_to_connect(self):
         # Try to connect to an existing Papa
-        s = socket.socket(self.family, socket.SOCK_STREAM)
+        sock = socket.socket(self.family, socket.SOCK_STREAM)
         if self.family == socket.AF_INET:
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        s.connect(self.location)
-        return s
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.connect(self.location)
+        return sock
 
     def _do_command(self, command):
         if isinstance(command, list):
             command = ' '.join(command)
-        if isinstance(command, str):
-            command = command.encode()
+        command = b(command)
         self.sock.sendall(command + b'\n')
         data = b''
         while not data.endswith(b'\n> '):
             data += self.sock.recv(1024)
-        data = data[:-3]
+        data = s(data[:-3])
         if data.startswith('Error:'):
             raise utils.Error(data[7:])
         return data
 
     @staticmethod
-    def _make_socket_dict(s):
-        name, args = s.partition(' ')[::2]
+    def _make_socket_dict(socket_info):
+        name, args = socket_info.partition(' ')[::2]
         return name, dict(item.partition('=')[::2] for item in args.split(' '))
 
     def sockets(self):
         result = self._do_command(b'sockets')
-        if result == 'No sockets':
+        if not result:
             return {}
         return dict(self._make_socket_dict(item) for item in result.split('\n'))
-
-    def processes(self):
-        result = self._do_command(b'processes')
-        if result == 'No processes':
-            return {}
-        return result
 
     def make_socket(self, name, host=None, port=None,
                     family=None, socket_type=None,
@@ -127,28 +120,55 @@ class Papa(object):
                 command.append('interface={0}'.format(interface))
         return self._make_socket_dict(self._do_command(command))[1]
 
+    def close_socket(self, name):
+        self._do_command(['close socket', name])
+        return True
+
+    def values(self):
+        result = self._do_command(b'values')
+        if not result:
+            return {}
+        return dict(item.partition(' ')[::2] for item in result.split('\n'))
+
+    def set(self, name, value=None):
+        command = ['set', name]
+        if value:
+            command.append(value)
+        self._do_command(command)
+
+    def get(self, name):
+        result = self._do_command(['get', name])
+        return result or None
+
+    def processes(self):
+        result = self._do_command(b'processes')
+        if not result:
+            return {}
+        return result
+
     def make_process(self):
         pass
 
-    def close_socket(self, name):
-        result = self._do_command(['close socket', name])
-        return result
-
-    def close_output_channel(self):
-        pass
+    def close_output_channels(self, name):
+        self._do_command(['close output', name])
+        return True
 
     def watch(self):
         pass
 
 
 from papa import utils
+s = utils.cast_string
+b = utils.cast_bytes
 
 if __name__ == '__main__':
     p = Papa()
     print('Sockets: {0}'.format(p.sockets()))
-    print('Socket uwsgi: {0}'.format(p.make_socket('uwsgi interface=eth0')))
+    print('Socket uwsgi: {0}'.format(p.make_socket('uwsgi', interface='eth0')))
     print('Sockets: {0}'.format(p.sockets()))
-    print('Socket chaussette: {0}'.format(p.make_socket('chaussette path=/tmp/chaussette.sock')))
+    print('Socket chaussette: {0}'.format(p.make_socket('chaussette', path='/tmp/chaussette.sock')))
+    print('Sockets: {0}'.format(p.sockets()))
+    print('Socket uwsgi6: {0}'.format(p.make_socket('uwsgi6', family=socket.AF_INET6)))
     print('Sockets: {0}'.format(p.sockets()))
     try:
         print('Socket chaussette: {0}'.format(p.make_socket('chaussette')))
@@ -159,3 +179,15 @@ if __name__ == '__main__':
     print('Close chaussette: {0}'.format(p.close_socket('chaussette')))
     print('Sockets: {0}'.format(p.sockets()))
     print('Processes: {0}'.format(p.processes()))
+    print('Values: {0}'.format(p.values()))
+    print('Set aack: {0}'.format(p.set('aack', 'bar')))
+    print('Get aack: {0}'.format(p.get('aack')))
+    print('Get bar: {0}'.format(p.get('bar')))
+    print('Values: {0}'.format(p.values()))
+    print('Set bar: {0}'.format(p.set('bar', 'barry')))
+    print('Get bar: {0}'.format(p.get('bar')))
+    print('Values: {0}'.format(p.values()))
+    print('Set bar: {0}'.format(p.set('bar')))
+    print('Get bar: {0}'.format(p.get('bar')))
+    print('Values: {0}'.format(p.values()))
+    print('Set aack: {0}'.format(p.set('aack')))

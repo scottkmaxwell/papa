@@ -5,8 +5,8 @@ from threading import Thread
 import logging
 from collections import namedtuple
 import resource
-from papa.server import papa_socket
-from papa.utils import Error, partition_and_strip
+from papa.server import papa_socket, values
+from papa.utils import Error, partition_and_strip, cast_bytes, cast_string
 
 __author__ = 'Scott Maxwell'
 
@@ -33,6 +33,12 @@ processes_by_pid = {}
 ProcessInfo = namedtuple('ProcessInfo', 'pid name')
 
 
+class CloseSocket(Exception):
+    def __init__(self, final_message=None):
+        self.final_message = final_message
+        super(CloseSocket, self).__init__(self)
+
+
 def process_command(sock, args):
     """Start a new process"""
     return 'ok'
@@ -45,7 +51,7 @@ def processes_command(sock, args):
     for name, proc_list in processes_by_name.items():
         for info in proc_list:
             lines.append('process {0} {1} ({2}})'.format(name, info.name, info.pid))
-    return '\n'.join(lines) if lines else 'No processes'
+    return '\n'.join(lines)
 
 
 def watch_command(sock, args):
@@ -71,19 +77,16 @@ Examples:
     cmd, args = partition_and_strip(args)
     cmd = cmd.lower()
     if cmd == 'output':
-        pass
+        return 'ok'
     elif cmd == 'socket':
         return papa_socket.close_socket_command(sock, args)
-    else:
-        return 'Bad close command. The second word must be either "output" or "socket".'
-
-    return 'ok'
+    raise Error('Bad close command. The second word must be either "output" or "socket".')
 
 
 # noinspection PyUnusedLocal
 def quit_command(sock, args):
     """Close the client socket"""
-    sock.sendall(b'ok\n')
+    raise CloseSocket('ok\n')
 
 
 # noinspection PyUnusedLocal
@@ -96,11 +99,14 @@ def help_command(sock, args):
         return help_for.__doc__
     return b"""Possible commands are:
     socket - Create a socket to be used by processes
-    process - Launch a process
     sockets - Show a list of active sockets
+    process - Launch a process
     processes - Show a list of active processes
     watch - Start receiving the output of a process
-    close - Stop recording the output of a process
+    close - Close a socket or stop recording the output of a process
+    values - Return all named values
+    set - Set a named value
+    get - Get a named value
     quit - Close the client session
     help - Type "help <cmd>" for more information
 
@@ -111,12 +117,15 @@ After a 'watch' command, just enter '-' and a return to receive more output.
 
 
 commands = {
-    'socket': papa_socket.socket_command,
-    'process': process_command,
     'sockets': papa_socket.sockets_command,
+    'socket': papa_socket.socket_command,
     'processes': processes_command,
+    'process': process_command,
     'watch': watch_command,
     'close': close_command,
+    'values': values.values_command,
+    'set': values.set_command,
+    'get': values.get_command,
     'quit': quit_command,
     'help': help_command,
 }
@@ -148,25 +157,27 @@ def chat_with_a_client(sock, addr, container):
                 break
 
             one_line, data = data.partition(b'\n')[::2]
-            one_line = one_line.decode()
-            one_line = one_line.strip()
-            cmd, args = partition_and_strip(one_line)
+            cmd, args = partition_and_strip(cast_string(one_line).strip())
             cmd = cmd.lower()
             if cmd:
                 command = lookup_command(cmd)
                 if command:
-                    reply = command(sock, args)
-                    if not reply:
+                    try:
+                        reply = command(sock, args) or '\n'
+                    except CloseSocket as e:
+                        if e.final_message:
+                            sock.sendall(cast_bytes(e.final_message))
                         break
+                    except Exception as e:
+                        reply = 'Error: {0}\n'.format(e)
                 else:
-                    reply = '"{0}" is an unknown command\n'.format(cmd)
+                    reply = 'Error: "{0}" is an unknown command\n'.format(cmd)
 
-                if isinstance(reply, str):
-                    reply = reply.encode()
-                if reply[-1:] != b'\n':
-                    reply += b'\n> '
+                if reply[-1] != '\n':
+                    reply += '\n> '
                 else:
-                    reply += b'> '
+                    reply += '> '
+                reply = cast_bytes(reply)
             else:
                 reply = b'> '
             sock.sendall(reply)

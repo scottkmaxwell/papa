@@ -9,6 +9,11 @@ __author__ = 'Scott Maxwell'
 
 log = logging.getLogger('papa.server')
 
+if hasattr(socket, 'AF_UNIX'):
+    unix_socket = socket.AF_UNIX
+else:
+    unix_socket = None
+
 
 class PapaSocket(object):
     _sockets_by_name = {}
@@ -19,26 +24,43 @@ class PapaSocket(object):
                  path=None, umask=None,
                  host=None, port=0, interface=None, reuseport=False):
 
+        if path and unix_socket is None:
+            raise NotImplemented('Unix sockets are not supported on this system')
+
         self.name = name
         if family:
             self.family = utils.valid_families[family]
         else:
-            self.family = socket.AF_UNIX if path else socket.AF_INET
+            self.family = unix_socket if path else socket.AF_INET
         self.socket_type = utils.valid_types[type]
         self.backlog = int(backlog)
         self.path = self.umask = None
         self.host = self.port = self.interface = self.reuseport = None
         self.socket = None
 
-        if self.family == socket.AF_UNIX:
+        if self.family == unix_socket:
             if not path or not os.path.isabs(path):
                 raise utils.Error('Absolute path required for Unix sockets')
             self.path = path
             self.umask = None if umask is None else int(umask)
         else:
-            self.host = host if host else '0.0.0.0' if interface else '127.0.0.1'
             self.port = int(port)
             self.interface = interface
+
+            if host:
+                self.host = self._host = host
+                target_length = 4 if self.family == socket.AF_INET6 else 2
+                for info in socket.getaddrinfo(host, self.port):
+                    if len(info[-1]) == target_length:
+                        self._host = info[-1][0]
+                        break
+            else:
+                if self.family == socket.AF_INET6:
+                    self.host = '::' if interface else '::1'
+                else:
+                    self.host = '0.0.0.0' if interface else '127.0.0.1'
+                self._host = self.host
+
             self.reuseport = reuseport if reuseport and hasattr(socket, 'SO_REUSEPORT') else False
 
     def __str__(self):
@@ -84,7 +106,7 @@ class PapaSocket(object):
             else:
                 raise utils.Error('Socket for {0} has already been created - {1}'.format(self.name, str(existing)))
         else:
-            if self.family == socket.AF_UNIX:
+            if self.family == unix_socket:
                 if self.path in PapaSocket._sockets_by_path:
                     raise utils.Error('Socket for {0} has already been created'.format(self.path))
                 try:
@@ -112,7 +134,7 @@ class PapaSocket(object):
                         s.setsockopt(socket.SOL_SOCKET, IN.SO_BINDTODEVICE,
                                      self.interface + '\0')
                 try:
-                    s.bind((self.host, self.port))
+                    s.bind((self._host, self.port))
                 except socket.error as e:
                     raise utils.Error('Bind failed on {0}:{1}: {2}'.format(self.host, self.port, e))
                 if not self.port:
@@ -181,25 +203,17 @@ Examples:
     socket uwsgi port=8080
     socket chaussette path=/tmp/chaussette.sock
 """
-    try:
-        name, args = partition_and_strip(args)
-        kwargs = dict(item.lower().partition('=')[::2] for item in args.split(' ')) if args else {}
-        s = PapaSocket(name, **kwargs)
-        return str(s.start())
-    except Exception as e:
-        return 'Error: {0}'.format(e)
+    name, args = partition_and_strip(args)
+    kwargs = dict(item.lower().partition('=')[::2] for item in args.split(' ')) if args else {}
+    return str(PapaSocket(name, **kwargs).start())
 
 
 # noinspection PyUnusedLocal
 def close_socket_command(sock, args):
-    try:
-        PapaSocket.close(args)
-        return 'ok'
-    except Exception as e:
-        return 'Error: {0}'.format(e)
+    PapaSocket.close(args)
 
 
 # noinspection PyUnusedLocal
 def sockets_command(sock, args):
-    lines = PapaSocket.sockets()
-    return '\n'.join(lines) if lines else 'No sockets'
+    """Return a list of all open sockets"""
+    return '\n'.join(PapaSocket.sockets())
