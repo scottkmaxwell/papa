@@ -3,10 +3,10 @@ import sys
 import socket
 from threading import Thread
 import logging
-from collections import namedtuple
 import resource
-from papa.server import papa_socket, values
-from papa.utils import Error, partition_and_strip, cast_bytes, cast_string
+from papa.utils import Error, cast_bytes, cast_string
+from papa.server import papa_socket, values, proc
+import atexit
 
 __author__ = 'Scott Maxwell'
 
@@ -19,6 +19,7 @@ except ImportError:
         def add_argument(self, *args, **kwargs):
             return self.add_option(*args, **kwargs)
 
+        # noinspection PyShadowingNames
         def parse_args(self, args=None, values=None):
             return OptionParser.parse_args(self, args, values)[0]
 
@@ -27,11 +28,6 @@ log = logging.getLogger('papa.server')
 active_threads = []
 inactive_threads = []
 
-processes_by_name = {}
-processes_by_pid = {}
-
-ProcessInfo = namedtuple('ProcessInfo', 'pid name')
-
 
 class CloseSocket(Exception):
     def __init__(self, final_message=None):
@@ -39,28 +35,14 @@ class CloseSocket(Exception):
         super(CloseSocket, self).__init__(self)
 
 
-def process_command(sock, args):
-    """Start a new process"""
-    return 'ok'
+close_commands = {
+    'socket': papa_socket.close_socket_command,
+    'output': proc.close_output_command,
+}
 
 
 # noinspection PyUnusedLocal
-def processes_command(sock, args):
-    """List all active sockets and processes"""
-    lines = []
-    for name, proc_list in processes_by_name.items():
-        for info in proc_list:
-            lines.append('process {0} {1} ({2}})'.format(name, info.name, info.pid))
-    return '\n'.join(lines)
-
-
-def watch_command(sock, args):
-    """Watch a process"""
-    return 'ok'
-
-
-# noinspection PyUnusedLocal
-def close_command(sock, args):
+def close_command(sock, args, instance_globals):
     """Close the output channel of the specified process and recover the memory buffer
 or a socket.
 
@@ -74,30 +56,28 @@ Examples:
     close socket uwsgi
     close socket 10
 """
-    cmd, args = partition_and_strip(args)
-    cmd = cmd.lower()
-    if cmd == 'output':
-        return 'ok'
-    elif cmd == 'socket':
-        return papa_socket.close_socket_command(sock, args)
+    cmd = args.pop(0)
+    command = lookup_command(cmd, close_commands)
+    if command:
+        return command(sock, args, instance_globals)
     raise Error('Bad close command. The second word must be either "output" or "socket".')
 
 
 # noinspection PyUnusedLocal
-def quit_command(sock, args):
+def quit_command(sock, args, instance_globals):
     """Close the client socket"""
     raise CloseSocket('ok\n')
 
 
 # noinspection PyUnusedLocal
-def help_command(sock, args):
+def help_command(sock, args, instance_globals):
     """Show help info"""
     if args:
         help_for = lookup_command(args)
         if not help_for:
             return '"{0}" is an unknown command\n'.format(help_for)
         return help_for.__doc__
-    return b"""Possible commands are:
+    return """Possible commands are:
     socket - Create a socket to be used by processes
     sockets - Show a list of active sockets
     process - Launch a process
@@ -116,22 +96,23 @@ After a 'watch' command, just enter '-' and a return to receive more output.
 """
 
 
-commands = {
+top_level_commands = {
     'sockets': papa_socket.sockets_command,
     'socket': papa_socket.socket_command,
-    'processes': processes_command,
-    'process': process_command,
-    'watch': watch_command,
+    'processes': proc.processes_command,
+    'process': proc.process_command,
+    'watch': proc.watch_command,
     'close': close_command,
     'values': values.values_command,
     'set': values.set_command,
     'get': values.get_command,
+    'clear': values.clear_command,
     'quit': quit_command,
     'help': help_command,
 }
 
 
-def lookup_command(cmd):
+def lookup_command(cmd, commands=top_level_commands):
     cmd = cmd.lower()
     if cmd in commands:
         return commands[cmd]
@@ -140,7 +121,7 @@ def lookup_command(cmd):
             return commands[item]
 
 
-def chat_with_a_client(sock, addr, container):
+def chat_with_a_client(sock, addr, instance_globals, container):
     try:
         sock.send(b'Papa is home. Type "help" for commands.\n> ')
 
@@ -157,13 +138,24 @@ def chat_with_a_client(sock, addr, container):
                 break
 
             one_line, data = data.partition(b'\n')[::2]
-            cmd, args = partition_and_strip(cast_string(one_line).strip())
-            cmd = cmd.lower()
+            args = []
+            acc = ''
+            for arg in cast_string(one_line).split(' '):
+                if arg[-1] == '\\':
+                    acc += arg[:-1] + ' '
+                else:
+                    acc += arg
+                    args.append(acc.strip())
+                    acc = ''
+            if acc:
+                args.append(acc)
+
+            cmd = args.pop(0).lower()
             if cmd:
                 command = lookup_command(cmd)
                 if command:
                     try:
-                        reply = command(sock, args) or '\n'
+                        reply = command(sock, args, instance_globals) or '\n'
                     except CloseSocket as e:
                         if e.final_message:
                             sock.sendall(cast_bytes(e.final_message))
@@ -189,12 +181,19 @@ def chat_with_a_client(sock, addr, container):
     except socket.error:
         pass
 
-    thread_object = container[0]
-    active_threads.remove(thread_object)
-    inactive_threads.append((addr, thread_object))
+    if container:
+        thread_object = container[0]
+        active_threads.remove(thread_object)
+        inactive_threads.append((addr, thread_object))
 
 
-def socket_server(port_or_path):
+def cleanup(instance_globals):
+    papa_socket.cleanup(instance_globals)
+
+
+def socket_server(port_or_path, single_socket_mode=False):
+    instance_globals = {}
+    atexit.register(cleanup, (instance_globals,))
     try:
         if isinstance(port_or_path, str):
             try:
@@ -219,28 +218,34 @@ def socket_server(port_or_path):
         log.error(e)
         sys.exit(1)
 
-    s.listen(5)
+    s.listen(0 if single_socket_mode else 5)
     log.info('Listening')
     while True:
         try:
             sock, addr = s.accept()
             log.info('Started client session with %s:%d', addr[0], addr[1])
             container = []
-            t = Thread(target=chat_with_a_client, args=(sock, addr, container))
-            container.append(t)
-            active_threads.append(t)
-            t.daemon = True
-            t.start()
+            if single_socket_mode:
+                chat_with_a_client(sock, addr, instance_globals, None)
+            else:
+                t = Thread(target=chat_with_a_client, args=(sock, addr, instance_globals, container))
+                container.append(t)
+                active_threads.append(t)
+                t.daemon = True
+                t.start()
             s.settimeout(.5)
         except socket.timeout:
-            while inactive_threads:
-                addr, t = inactive_threads.pop()
-                t.join()
-                log.info('Closed client session with %s:%d', addr[0], addr[1])
-            if not active_threads:
-                s.settimeout(None)
-
+            pass
+        while inactive_threads:
+            addr, t = inactive_threads.pop()
+            t.join()
+            log.info('Closed client session with %s:%d', addr[0], addr[1])
+        if not active_threads:
+            if single_socket_mode:
+                break
+            s.settimeout(None)
     s.close()
+    papa_socket.cleanup(instance_globals)
 
 
 def daemonize_server(port_or_path):
@@ -255,20 +260,18 @@ def daemonize_server(port_or_path):
     if process_id == -1:
         sys.exit(1)
 
-    devnull = os.devnull if hasattr(os, 'devnull') else '/dev/null'
     for fd in range(3, resource.getrlimit(resource.RLIMIT_NOFILE)[0]):
         try:
             os.close(fd)
         except OSError:
             pass
 
+    devnull = os.devnull if hasattr(os, 'devnull') else '/dev/null'
     devnull_fd = os.open(devnull, os.O_RDWR)
-    # noinspection PyTypeChecker
-    os.dup2(devnull_fd, 0)
-    # noinspection PyTypeChecker
-    os.dup2(devnull_fd, 1)
-    # noinspection PyTypeChecker
-    os.dup2(devnull_fd, 2)
+    for fd in range(3):
+        # noinspection PyTypeChecker
+        os.dup2(devnull_fd, fd)
+
     os.umask(0o27)
     os.chdir('/')
     socket_server(port_or_path)

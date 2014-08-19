@@ -21,14 +21,10 @@ class Error(RuntimeError):
     pass
 
 
-def partition_and_strip(text, delimiter=' '):
-    a, b = text.partition(delimiter)[::2]
-    return a.strip(), b.strip()
-
-
 if PY2:
     def cast_bytes(s, encoding='utf8'):
         """cast unicode or bytes to bytes"""
+        # noinspection PyUnresolvedReferences
         if isinstance(s, unicode):
             return s.encode(encoding)
         return str(s)
@@ -37,13 +33,19 @@ if PY2:
     def cast_unicode(s, encoding='utf8', errors='replace'):
         """cast bytes or unicode to unicode.
           errors options are strict, ignore or replace"""
+        # noinspection PyUnresolvedReferences
         if isinstance(s, unicode):
             return s
+        # noinspection PyUnresolvedReferences
         return str(s).decode(encoding)
 
     # noinspection PyUnusedLocal
     def cast_string(s, errors='replace'):
+        # noinspection PyUnresolvedReferences
         return s if isinstance(s, basestring) else str(s)
+
+    # noinspection PyUnresolvedReferences
+    string_type = basestring
 
 else:
     def cast_bytes(s, encoding='utf8'):  # NOQA
@@ -60,3 +62,37 @@ else:
         return str(s)
 
     cast_string = cast_unicode
+    string_type = str
+
+
+def extract_name_value_pairs(args):
+    var_dict = {}
+    while args and '=' in args[0]:
+        arg = args.pop(0)
+        name, value = arg.partition('=')[::2]
+        if value[0] == '"' and value[-1] == '"':
+            value = value[1:-1]
+        var_dict[name] = value
+    return var_dict
+
+
+def wildcard_iter(d, matches, required=False):
+    if not matches or matches == '*':
+        matched = set(d.keys())
+    else:
+        matched = set()
+        for match in matches:
+            if match and match[-1] == '*':
+                match = match[:-1]
+                if not match:
+                    matched = set(d.keys())
+                else:
+                    for name in d.keys():
+                        if name.startswith(match):
+                            matched.add(name)
+            elif match in d:
+                matched.add(match)
+            elif required:
+                raise Error('{0} not found'.format(match))
+    for name in matched:
+        yield name, d[name]

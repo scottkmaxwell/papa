@@ -3,7 +3,7 @@ import os.path
 import socket
 import logging
 from papa import utils
-from papa.utils import partition_and_strip
+from papa.utils import extract_name_value_pairs, wildcard_iter
 
 __author__ = 'Scott Maxwell'
 
@@ -16,17 +16,19 @@ else:
 
 
 class PapaSocket(object):
-    _sockets_by_name = {}
-    _sockets_by_path = {}
 
     # noinspection PyShadowingBuiltins
-    def __init__(self, name, family=None, type='stream', backlog=5,
-                 path=None, umask=None,
+    def __init__(self, name, instance_globals, family=None, type='stream',
+                 backlog=5, path=None, umask=None,
                  host=None, port=0, interface=None, reuseport=False):
 
         if path and unix_socket is None:
             raise NotImplemented('Unix sockets are not supported on this system')
 
+        if 'sockets' not in instance_globals:
+            instance_globals['sockets'] = {'by_name': {}, 'by_path': {}}
+        self._sockets_by_name = instance_globals['sockets']['by_name']
+        self._sockets_by_path = instance_globals['sockets']['by_path']
         self.name = name
         if family:
             self.family = utils.valid_families[family]
@@ -99,15 +101,16 @@ class PapaSocket(object):
         )
 
     def start(self):
-        existing = PapaSocket._sockets_by_name.get(self.name)
+        existing = self._sockets_by_name.get(self.name)
         if existing:
             if self == existing:
                 self.socket = existing.socket
+                self.port = existing.port
             else:
                 raise utils.Error('Socket for {0} has already been created - {1}'.format(self.name, str(existing)))
         else:
             if self.family == unix_socket:
-                if self.path in PapaSocket._sockets_by_path:
+                if self.path in self._sockets_by_path:
                     raise utils.Error('Socket for {0} has already been created'.format(self.path))
                 try:
                     os.unlink(self.path)
@@ -124,7 +127,7 @@ class PapaSocket(object):
                         os.umask(old_mask)
                 except socket.error as e:
                     raise utils.Error('Bind failed: {0}'.format(e))
-                PapaSocket._sockets_by_path[self.path] = self
+                self._sockets_by_path[self.path] = self
             else:
                 s = socket.socket(self.family, self.socket_type)
                 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -147,35 +150,33 @@ class PapaSocket(object):
                         s = None
                     except socket.error:
                         self.reuseport = False
-            s.listen(self.backlog)
-            try:
-                s.set_inheritable(True)
-            except Exception:
-                pass
+            # noinspection PyUnresolvedReferences
+            if s:
+                s.listen(self.backlog)
+                try:
+                    s.set_inheritable(True)
+                except Exception:
+                    pass
             self.socket = s
-            PapaSocket._sockets_by_name[self.name] = self
+            self._sockets_by_name[self.name] = self
             log.info('Created socket %s', self)
         return self
 
-    @classmethod
-    def close(cls, name):
-        try:
-            p = cls._sockets_by_name[name]
-        except KeyError:
-            raise utils.Error('Socket {0} not found'.format(name))
-        p.socket.close()
-        log.info('Closed socket %s', p)
-        if p.path:
-            del cls._sockets_by_path[p.path]
-        del cls._sockets_by_name[name]
-
-    @classmethod
-    def sockets(cls):
-        return sorted('{0}'.format(s) for s in cls._sockets_by_name.values())
+    def close(self):
+        if self.socket:
+            self.socket.close()
+        log.info('Closed socket %s', self)
+        if self.path:
+            del self._sockets_by_path[self.path]
+            try:
+                os.unlink(self.path)
+            except Exception:
+                pass
+        del self._sockets_by_name[self.name]
 
 
 # noinspection PyUnusedLocal
-def socket_command(sock, args):
+def socket_command(sock, args, instance_globals):
     """Create a socket to be used by processes.
 You need to specify a name, followed by name=value pairs for the connection
 options. The name must not contain spaces.
@@ -203,17 +204,24 @@ Examples:
     socket uwsgi port=8080
     socket chaussette path=/tmp/chaussette.sock
 """
-    name, args = partition_and_strip(args)
-    kwargs = dict(item.lower().partition('=')[::2] for item in args.split(' ')) if args else {}
-    return str(PapaSocket(name, **kwargs).start())
+    name = args.pop(0)
+    kwargs = extract_name_value_pairs(args)
+    return str(PapaSocket(name, instance_globals, **kwargs).start())
 
 
 # noinspection PyUnusedLocal
-def close_socket_command(sock, args):
-    PapaSocket.close(args)
+def close_socket_command(sock, args, instance_globals):
+    for name, p in wildcard_iter(instance_globals['sockets']['by_name'], args, required=True):
+        p.close()
 
 
 # noinspection PyUnusedLocal
-def sockets_command(sock, args):
+def sockets_command(sock, args, instance_globals):
     """Return a list of all open sockets"""
-    return '\n'.join(PapaSocket.sockets())
+    if 'sockets' in instance_globals:
+        return '\n'.join(sorted('{0}'.format(s) for _, s in wildcard_iter(instance_globals['sockets']['by_name'], args)))
+
+
+def cleanup(instance_globals):
+    if 'sockets' in instance_globals:
+        close_socket_command(None, None, instance_globals)

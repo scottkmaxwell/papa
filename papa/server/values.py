@@ -1,33 +1,49 @@
-from papa.utils import partition_and_strip
+from papa.utils import wildcard_iter, Error
 
 __author__ = 'Scott Maxwell'
 
-_values = {}
 
-
-def values_command(sock, args):
+def values_command(sock, args, instance_globals):
     """Return all values stored in Papa"""
-    return '\n'.join(sorted('{0} {1}'.format(key, value) for key, value in _values.items()))
+    if 'values' in instance_globals:
+        return '\n'.join(sorted('{0} {1}'.format(key, value) for key, value in wildcard_iter(instance_globals['values'], args)))
 
 
-def set_command(sock, args):
+def set_command(sock, args, instance_globals):
     """Set or clear a named value. Pass no value to clear.
 
 Examples:
     set count 5
     set count
 """
-    name, value = partition_and_strip(args)
-    if value:
-        _values[name] = value
+    values = instance_globals.setdefault('values', {})
+    name = args.pop(0)
+    if args:
+        values[name] = ' '.join(args)
     else:
-        _values.pop(name, None)
+        values.pop(name, None)
 
 
-def get_command(sock, args):
+def clear_command(sock, args, instance_globals):
+    """Clear a named value or set of values. You cannot 'clear *'.
+
+Examples:
+    clear count
+    clear circus.*
+"""
+    if not args or args == ['*']:
+        raise Error('You cannot clear all variables')
+    if 'values' in instance_globals:
+        values = instance_globals['values']
+        for name, _ in wildcard_iter(values, args):
+            del values[name]
+
+
+def get_command(sock, args, instance_globals):
     """Get a named value.
 
 Example:
     get count
 """
-    return _values.get(args)
+    if 'values' in instance_globals:
+        return instance_globals['values'].get(args[0])
