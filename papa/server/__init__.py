@@ -1,7 +1,7 @@
 import os
 import sys
 import socket
-from threading import Thread
+from threading import Thread, Lock
 import logging
 import resource
 from papa.utils import Error, cast_bytes, cast_string
@@ -192,7 +192,12 @@ def cleanup(instance_globals):
 
 
 def socket_server(port_or_path, single_socket_mode=False):
-    instance_globals = {}
+    instance_globals = {
+        'processes': {},
+        'sockets': {'by_name': {}, 'by_path': {}},
+        'values': {},
+        'lock': Lock()
+    }
     atexit.register(cleanup, (instance_globals,))
     try:
         if isinstance(port_or_path, str):
@@ -246,6 +251,7 @@ def socket_server(port_or_path, single_socket_mode=False):
             s.settimeout(None)
     s.close()
     papa_socket.cleanup(instance_globals)
+    atexit.unregister(cleanup)
 
 
 def daemonize_server(port_or_path):

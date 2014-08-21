@@ -25,8 +25,6 @@ class PapaSocket(object):
         if path and unix_socket is None:
             raise NotImplemented('Unix sockets are not supported on this system')
 
-        if 'sockets' not in instance_globals:
-            instance_globals['sockets'] = {'by_name': {}, 'by_path': {}}
         self._sockets_by_name = instance_globals['sockets']['by_name']
         self._sockets_by_path = instance_globals['sockets']['by_path']
         self.name = name
@@ -206,22 +204,24 @@ Examples:
 """
     name = args.pop(0)
     kwargs = extract_name_value_pairs(args)
-    return str(PapaSocket(name, instance_globals, **kwargs).start())
+    p = PapaSocket(name, instance_globals, **kwargs)
+    with instance_globals['lock']:
+        return str(p.start())
 
 
 # noinspection PyUnusedLocal
 def close_socket_command(sock, args, instance_globals):
-    for name, p in wildcard_iter(instance_globals['sockets']['by_name'], args, required=True):
-        p.close()
+    with instance_globals['lock']:
+        for name, p in wildcard_iter(instance_globals['sockets']['by_name'], args, required=True):
+            p.close()
 
 
 # noinspection PyUnusedLocal
 def sockets_command(sock, args, instance_globals):
     """Return a list of all open sockets"""
-    if 'sockets' in instance_globals:
+    with instance_globals['lock']:
         return '\n'.join(sorted('{0}'.format(s) for _, s in wildcard_iter(instance_globals['sockets']['by_name'], args)))
 
 
 def cleanup(instance_globals):
-    if 'sockets' in instance_globals:
-        close_socket_command(None, None, instance_globals)
+    close_socket_command(None, None, instance_globals)

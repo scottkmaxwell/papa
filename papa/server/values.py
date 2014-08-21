@@ -16,12 +16,13 @@ Examples:
     set count 5
     set count
 """
-    values = instance_globals.setdefault('values', {})
-    name = args.pop(0)
-    if args:
-        values[name] = ' '.join(args)
-    else:
-        values.pop(name, None)
+    values = instance_globals['values']
+    with instance_globals['lock']:
+        name = args.pop(0)
+        if args:
+            values[name] = ' '.join(args)
+        else:
+            values.pop(name, None)
 
 
 def clear_command(sock, args, instance_globals):
@@ -33,8 +34,8 @@ Examples:
 """
     if not args or args == ['*']:
         raise Error('You cannot clear all variables')
-    if 'values' in instance_globals:
-        values = instance_globals['values']
+    values = instance_globals['values']
+    with instance_globals['lock']:
         for name, _ in wildcard_iter(values, args):
             del values[name]
 
@@ -45,5 +46,5 @@ def get_command(sock, args, instance_globals):
 Example:
     get count
 """
-    if 'values' in instance_globals:
+    with instance_globals['lock']:
         return instance_globals['values'].get(args[0])
