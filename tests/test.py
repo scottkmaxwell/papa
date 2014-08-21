@@ -177,13 +177,16 @@ class ProcessTest(unittest.TestCase):
     def test_process(self):
         with papa.Papa() as p:
             self.assertDictEqual({}, p.processes())
-            reply = p.make_process('write3', sys.executable, args='write_three_lines.py', working_dir=here, uid=os.environ['LOGNAME'], env=os.environ, out='1m', err=0)
-            self.assertIn('pid', reply)
-            self.assertTrue(isinstance(reply['pid'], int))
+            reply1 = p.make_process('write3', sys.executable, args='write_three_lines.py', working_dir=here, uid=os.environ['LOGNAME'], env=os.environ, out='1m', err=0)
+            self.assertIn('pid', reply1)
+            self.assertTrue(isinstance(reply1['pid'], int))
             reply = p.processes()
             self.assertEqual(1, len(list(reply.keys())))
             self.assertEqual('write3', list(reply.keys())[0])
             self.assertIn('pid', list(reply.values())[0])
+
+            reply2 = p.make_process('write3', sys.executable, args='write_three_lines.py', working_dir=here, uid=os.environ['LOGNAME'], env=os.environ, out='1m', err=0)
+            self.assertDictEqual(reply1, reply2)
 
 if __name__ == '__main__':
     unittest.main()

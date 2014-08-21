@@ -2,9 +2,12 @@ import os
 import sys
 import logging
 import ctypes
+import errno
 from papa import utils
-from papa.utils import extract_name_value_pairs
-from subprocess import PIPE, Popen
+from papa.utils import extract_name_value_pairs, wildcard_iter
+from subprocess import Popen, PIPE, STDOUT
+from threading import Thread, Lock
+
 try:
     import pwd
 except ImportError:
@@ -67,13 +70,7 @@ class Process(object):
                  working_dir=None, shell=False, uid=None, gid=None,
                  out='1m', err='1m'):
 
-        if 'processes' not in instance_globals:
-            instance_globals['processes'] = {}
-        all_processes = instance_globals['processes']
-        if name not in all_processes:
-            all_processes[name] = []
-        self._processes = all_processes[name]
-        self._processes.append(self)
+        self._processes = instance_globals['processes']
 
         self.name = name
         self.args = args
@@ -83,7 +80,9 @@ class Process(object):
         self.shell = shell
         self.pid = 0
         self.out = convert_size_string_to_bytes(out)
-        self.err = convert_size_string_to_bytes(err)
+        self.err = err if err == 'out' else convert_size_string_to_bytes(err)
+        self.outbuf = None
+        self.errbuf = None
 
         if uid:
             if pwd:
@@ -126,77 +125,131 @@ class Process(object):
         # sockets created before fork, should be let go after.
         self._sockets = []
         self._worker = None
+        self._thread = None
+        self._lock = None
+
+    def __eq__(self, other):
+        return (
+            self.name == other.name and
+            self.args == other.args and
+            self.env == other.env and
+            self.rlimits == other.rlimits and
+            self.working_dir == other.working_dir and
+            self.shell == other.shell and
+            self.out == other.out and
+            self.err == other.err and
+            self.uid == other.uid and
+            self.gid == other.gid
+        )
 
     def spawn(self):
-        fixed_args = []
-        for arg in self.args:
-            if '$(socket.' in arg:
-                pass
-            fixed_args.append(arg)
-
-        def preexec():
-            streams = [sys.stdin]
-            if not self.out:
-                streams.append(sys.stdout)
-            if not self.err:
-                streams.append(sys.stderr)
-            for stream in streams:
-                if hasattr(stream, 'fileno'):
-                    try:
-                        stream.flush()
-                        devnull = os.open(os.devnull, os.O_RDWR)
-                        # noinspection PyTypeChecker
-                        os.dup2(devnull, stream.fileno())
-                        # noinspection PyTypeChecker
-                        os.close(devnull)
-                    except IOError:
-                        # some streams, like stdin - might be already closed.
-                        pass
-
-            # noinspection PyArgumentList
-            os.setsid()
-
-            if resource:
-                for limit, value in self.rlimits.items():
-                    resource.setrlimit(limit, (value, value))
-
-            if self.gid:
-                try:
-                    # noinspection PyTypeChecker
-                    os.setgid(self.gid)
-                except OverflowError:
-                    if not ctypes:
-                        raise
-                    # versions of python < 2.6.2 don't manage unsigned int for
-                    # groups like on osx or fedora
-                    os.setgid(-ctypes.c_int(-self.gid).value)
-
-                if self.username is not None:
-                    try:
-                        # noinspection PyTypeChecker
-                        os.initgroups(self.username, self.gid)
-                    except (OSError, AttributeError):
-                        # not support on Mac or 2.6
-                        pass
-
-            if self.uid:
-                # noinspection PyTypeChecker
-                os.setuid(self.uid)
-
-        if IS_WINDOWS:
-            # On Windows we can't use a pre-exec function
-            preexec_fn = None
+        existing = self._processes.get(self.name)
+        if existing:
+            if self == existing:
+                self.pid = existing.pid
+            else:
+                raise utils.Error('Process for {0} has already been created - {1}'.format(self.name, str(existing)))
         else:
-            preexec_fn = preexec
+            fixed_args = []
+            for arg in self.args:
+                if '$(socket.' in arg:
+                    pass
+                fixed_args.append(arg)
 
-        self._worker = Popen(fixed_args, cwd=self.working_dir,
-                             shell=self.shell, preexec_fn=preexec_fn,
-                             env=self.env, stdout=PIPE, stderr=PIPE)
+            def preexec():
+                streams = [sys.stdin]
+                if not self.out:
+                    streams.append(sys.stdout)
+                if not self.err:
+                    streams.append(sys.stderr)
+                for stream in streams:
+                    if hasattr(stream, 'fileno'):
+                        try:
+                            stream.flush()
+                            devnull = os.open(os.devnull, os.O_RDWR)
+                            # noinspection PyTypeChecker
+                            os.dup2(devnull, stream.fileno())
+                            # noinspection PyTypeChecker
+                            os.close(devnull)
+                        except IOError:
+                            # some streams, like stdin - might be already closed.
+                            pass
 
-        self.pid = self._worker.pid
-        # let go of sockets created only for self._worker to inherit
-        self._sockets = []
+                # noinspection PyArgumentList
+                os.setsid()
+
+                if resource:
+                    for limit, value in self.rlimits.items():
+                        resource.setrlimit(limit, (value, value))
+
+                if self.gid:
+                    try:
+                        # noinspection PyTypeChecker
+                        os.setgid(self.gid)
+                    except OverflowError:
+                        if not ctypes:
+                            raise
+                        # versions of python < 2.6.2 don't manage unsigned int for
+                        # groups like on osx or fedora
+                        os.setgid(-ctypes.c_int(-self.gid).value)
+
+                    if self.username is not None:
+                        try:
+                            # noinspection PyTypeChecker
+                            os.initgroups(self.username, self.gid)
+                        except (OSError, AttributeError):
+                            # not support on Mac or 2.6
+                            pass
+
+                if self.uid:
+                    # noinspection PyTypeChecker
+                    os.setuid(self.uid)
+
+            if IS_WINDOWS:
+                # On Windows we can't use a pre-exec function
+                preexec_fn = None
+            else:
+                preexec_fn = preexec
+
+            extra = {}
+            if self.out:
+                extra['stdout'] = PIPE
+                self.outbuf = bytearray(self.out)
+
+            if self.err:
+                if self.err == 'out':
+                    extra['stderr'] = STDOUT
+                else:
+                    extra['stderr'] = PIPE
+                    self.errbuf = bytearray(self.err)
+
+            self._worker = Popen(fixed_args, cwd=self.working_dir,
+                                 shell=self.shell, preexec_fn=preexec_fn,
+                                 env=self.env, **extra)
+
+            # let go of sockets created only for self.worker to inherit
+            self._sockets = []
+            self._processes[self.name] = self
+            self.pid = self._worker.pid
+            self._lock = Lock()
+
+            self._thread = Thread(target=self._watch)
+            self._thread.daemon = True
+            self._thread.start()
+
         return self
+
+    def exists(self):
+        try:
+            os.kill(self.pid, 0)
+            return True
+        except OSError as e:
+            return e.errno == errno.EPERM
+        except Exception:
+            return False
+
+    def _watch(self):
+        pass
 
     def __str__(self):
         return '{0} pid={1}'.format(self.name, self.pid)
@@ -239,19 +292,22 @@ Examples:
                 raise utils.Error('The rlimit value for "%s" must be an integer, not "%s"' % (key, value))
         else:
             kwargs[key] = value
-    return str(Process(name, args, env, rlimits, instance_globals, **kwargs).spawn())
+    p = Process(name, args, env, rlimits, instance_globals, **kwargs)
+    with instance_globals['lock']:
+        return str(p.spawn())
 
 
 # noinspection PyUnusedLocal
 def processes_command(sock, args, instance_globals):
     """List all active sockets and processes"""
-    if 'processes' in instance_globals:
-        return '\n'.join(sorted('{0}'.format(proc) for procs in instance_globals['processes'].values() for proc in procs))
+    with instance_globals['lock']:
+        return '\n'.join(sorted('{0}'.format(proc) for _, proc in wildcard_iter(instance_globals['processes'], args)))
 
 
 # noinspection PyUnusedLocal
 def close_output_command(sock, args, instance_globals):
-    pass
+    with instance_globals['lock']:
+        pass
 
 
 def watch_command(sock, args, instance_globals):
