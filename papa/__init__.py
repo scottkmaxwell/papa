@@ -1,9 +1,16 @@
+import sys
 import os.path
 import socket
 from threading import Lock
 from time import sleep
+from subprocess import PIPE, STDOUT
 import logging
 from papa.utils import string_type
+
+try:
+    from subprocess import DEVNULL
+except ImportError:
+    DEVNULL = -3
 
 __author__ = 'Scott Maxwell'
 __all__ = ['Papa', 'DEBUG_MODE_NONE', 'DEBUG_MODE_THREAD', 'DEBUG_MODE_PROCESS']
@@ -207,9 +214,24 @@ class Papa(object):
         # noinspection PyTypeChecker
         return dict(self._make_process_dict(item) for item in result.split('\n'))
 
-    def make_process(self, name, cmd, args=None, env=None, working_dir=None, uid=None, gid=None, rlimits=None, out=None, err=None):
+    def make_process(self, name, cmd, args=None, env=None, working_dir=None, uid=None, gid=None, rlimits=None, stdout=None, stderr=None, bufsize=None, watch_immediately=None):
         command = ['process', name]
-        append_if_not_none(command, working_dir=working_dir, uid=uid, gid=gid, out=out, err=err)
+        append_if_not_none(command, working_dir=working_dir, uid=uid, gid=gid, bufsize=bufsize)
+        if watch_immediately:
+            command.append('watch=1')
+        if bufsize != 0:
+            if stdout is not None:
+                if stdout == DEVNULL:
+                    command.append('stdout=0')
+                elif stdout != PIPE:
+                    raise utils.Error('stdout must be DEVNULL or PIPE')
+            if stderr is not None:
+                if stderr == DEVNULL:
+                    command.append('stderr=0')
+                elif stderr == STDOUT:
+                    command.append('stderr=stdout')
+                elif stderr != PIPE:
+                    raise utils.Error('stderr must be DEVNULL, PIPE or STDOUT')
         if env:
             for key, value in env.items():
                 command.append('env.{0}={1}'.format(key, wrap_trailing_slash(value)))
@@ -231,9 +253,8 @@ class Papa(object):
         self._do_command(['close', 'output'] + list(args))
         return True
 
-    def watch(self, *args, timeout=None):
+    def watch(self, *args):
         command = ['watch'] + list(args)
-        append_if_not_none(command, timeout=timeout)
         result = self._do_command(command)
         return result
 

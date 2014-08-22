@@ -18,13 +18,14 @@ else:
 class PapaSocket(object):
 
     # noinspection PyShadowingBuiltins
-    def __init__(self, name, instance_globals, family=None, type='stream',
+    def __init__(self, name, instance, family=None, type='stream',
                  backlog=5, path=None, umask=None,
                  host=None, port=0, interface=None, reuseport=False):
 
         if path and unix_socket is None:
             raise NotImplemented('Unix sockets are not supported on this system')
 
+        instance_globals = instance['globals']
         self._sockets_by_name = instance_globals['sockets']['by_name']
         self._sockets_by_path = instance_globals['sockets']['by_path']
         self.name = name
@@ -174,7 +175,7 @@ class PapaSocket(object):
 
 
 # noinspection PyUnusedLocal
-def socket_command(sock, args, instance_globals):
+def socket_command(sock, args, instance):
     """Create a socket to be used by processes.
 You need to specify a name, followed by name=value pairs for the connection
 options. The name must not contain spaces.
@@ -204,24 +205,28 @@ Examples:
 """
     name = args.pop(0)
     kwargs = extract_name_value_pairs(args)
-    p = PapaSocket(name, instance_globals, **kwargs)
-    with instance_globals['lock']:
+    p = PapaSocket(name, instance, **kwargs)
+    with instance['globals']['lock']:
         return str(p.start())
 
 
 # noinspection PyUnusedLocal
-def close_socket_command(sock, args, instance_globals):
+def close_socket_command(sock, args, instance):
+    instance_globals = instance['globals']
     with instance_globals['lock']:
         for name, p in wildcard_iter(instance_globals['sockets']['by_name'], args, required=True):
             p.close()
 
 
 # noinspection PyUnusedLocal
-def sockets_command(sock, args, instance_globals):
+def sockets_command(sock, args, instance):
     """Return a list of all open sockets"""
+    instance_globals = instance['globals']
     with instance_globals['lock']:
         return '\n'.join(sorted('{0}'.format(s) for _, s in wildcard_iter(instance_globals['sockets']['by_name'], args)))
 
 
 def cleanup(instance_globals):
-    close_socket_command(None, None, instance_globals)
+    with instance_globals['lock']:
+        for p in list(instance_globals['sockets']['by_name'].values()):
+            p.close()

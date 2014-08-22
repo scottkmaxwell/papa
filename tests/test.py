@@ -2,6 +2,7 @@ import os
 import sys
 import os.path
 import socket
+from time import sleep
 import unittest
 import papa
 from papa.server.papa_socket import unix_socket
@@ -177,7 +178,7 @@ class ProcessTest(unittest.TestCase):
     def test_process(self):
         with papa.Papa() as p:
             self.assertDictEqual({}, p.processes())
-            reply1 = p.make_process('write3', sys.executable, args='write_three_lines.py', working_dir=here, uid=os.environ['LOGNAME'], env=os.environ, out='1m', err=0)
+            reply1 = p.make_process('write3', sys.executable, args='executables/write_three_lines.py', working_dir=here, uid=os.environ['LOGNAME'], env=os.environ)
             self.assertIn('pid', reply1)
             self.assertTrue(isinstance(reply1['pid'], int))
             reply = p.processes()
@@ -185,8 +186,11 @@ class ProcessTest(unittest.TestCase):
             self.assertEqual('write3', list(reply.keys())[0])
             self.assertIn('pid', list(reply.values())[0])
 
-            reply2 = p.make_process('write3', sys.executable, args='write_three_lines.py', working_dir=here, uid=os.environ['LOGNAME'], env=os.environ, out='1m', err=0)
+            reply2 = p.make_process('write3', sys.executable, args='executables/write_three_lines.py', working_dir=here, uid=os.environ['LOGNAME'], env=os.environ)
             self.assertDictEqual(reply1, reply2)
+
+            reply = p.watch('write*')
+            sleep(2)
 
 if __name__ == '__main__':
     unittest.main()

@@ -2,11 +2,14 @@ import os
 import sys
 import logging
 import ctypes
-import errno
+import select
+import fcntl
+from time import time, sleep
 from papa import utils
-from papa.utils import extract_name_value_pairs, wildcard_iter
+from papa.utils import extract_name_value_pairs, wildcard_iter, cast_bytes
 from subprocess import Popen, PIPE, STDOUT
 from threading import Thread, Lock
+from collections import deque, namedtuple
 
 try:
     import pwd
@@ -26,7 +29,6 @@ except ImportError:
 __author__ = 'Scott Maxwell'
 
 logger = logging.getLogger('papa.server')
-IS_WINDOWS = os.name == 'nt'
 
 
 def convert_size_string_to_bytes(s):
@@ -34,6 +36,50 @@ def convert_size_string_to_bytes(s):
         return int(s)
     except ValueError:
         return int(s[:-1]) * {'g': 1073741824, 'm': 1048576, 'k': 1024}[s[-1].lower()]
+
+
+class OutputQueue(object):
+    Item = namedtuple('Item', 'type timestamp data')
+    STDOUT = 0
+    STDERR = 1
+    CLOSED = -1
+
+    def __init__(self, bufsize=1048576):
+        self.lock = Lock()
+        self.bufsize = bufsize
+        self.q = deque()
+        self._used = 0
+
+    def add(self, output_type, data=None):
+        with self.lock:
+            data_tuple = OutputQueue.Item(output_type, time(), data)
+            if output_type != OutputQueue.CLOSED and data:
+                if len(data) >= self.bufsize:
+                    self.q.clear()
+                    self._used = len(data)
+                else:
+                    self._used += len(data)
+                    while self._used > self.bufsize:
+                        first = self.q.popleft()
+                        self._used -= len(first.data)
+            self.q.append(data_tuple)
+
+    def retrieve(self):
+        if self.q:
+            with self.lock:
+                if self.q:
+                    l = list(self.q)
+                    return l[-1].timestamp, l
+        return 0, None
+
+    def remove(self, timestamp):
+        with self.lock:
+            q = self.q
+            while q and q[0].timestamp <= timestamp:
+                q.popleft()
+
+    def __len__(self):
+        return len(self.q)
 
 
 class Process(object):
@@ -66,10 +112,11 @@ class Process(object):
     - **rlimits**: a mapping containing rlimit names and values that will
       be set before the command runs.
     """
-    def __init__(self, name, args, env, rlimits, instance_globals,
+    def __init__(self, name, args, env, rlimits, instance,
                  working_dir=None, shell=False, uid=None, gid=None,
-                 out='1m', err='1m'):
+                 stdout=1, stderr=1, bufsize='1m'):
 
+        instance_globals = instance['globals']
         self._processes = instance_globals['processes']
 
         self.name = name
@@ -79,10 +126,14 @@ class Process(object):
         self.working_dir = working_dir
         self.shell = shell
         self.pid = 0
-        self.out = convert_size_string_to_bytes(out)
-        self.err = err if err == 'out' else convert_size_string_to_bytes(err)
-        self.outbuf = None
-        self.errbuf = None
+        self.bufsize = convert_size_string_to_bytes(bufsize)
+        self.running = False
+
+        if self.bufsize:
+            self.out = int(stdout)
+            self.err = stderr if stderr == 'stdout' else int(stderr)
+        else:
+            self.out = self.err = 0
 
         if uid:
             if pwd:
@@ -127,6 +178,7 @@ class Process(object):
         self._worker = None
         self._thread = None
         self._lock = None
+        self._output = None
 
     def __eq__(self, other):
         return (
@@ -138,6 +190,7 @@ class Process(object):
             self.shell == other.shell and
             self.out == other.out and
             self.err == other.err and
+            self.bufsize == other.bufsize and
             self.uid == other.uid and
             self.gid == other.gid
         )
@@ -205,58 +258,73 @@ class Process(object):
                     # noinspection PyTypeChecker
                     os.setuid(self.uid)
 
-            if IS_WINDOWS:
-                # On Windows we can't use a pre-exec function
-                preexec_fn = None
-            else:
-                preexec_fn = preexec
-
             extra = {}
             if self.out:
                 extra['stdout'] = PIPE
-                self.outbuf = bytearray(self.out)
 
             if self.err:
-                if self.err == 'out':
+                if self.err == 'stdout':
                     extra['stderr'] = STDOUT
                 else:
                     extra['stderr'] = PIPE
-                    self.errbuf = bytearray(self.err)
 
-            self._worker = Popen(fixed_args, cwd=self.working_dir,
-                                 shell=self.shell, preexec_fn=preexec_fn,
-                                 env=self.env, **extra)
+            self._worker = Popen(fixed_args, preexec_fn=preexec,
+                                 close_fds=False, shell=self.shell,
+                                 cwd=self.working_dir, env=self.env, bufsize=-1,
+                                 **extra)
 
             # let go of sockets created only for self.worker to inherit
             self._sockets = []
             self._processes[self.name] = self
             self.pid = self._worker.pid
-            self._lock = Lock()
+            self._output = OutputQueue(self.bufsize)
 
+            self.running = True
             self._thread = Thread(target=self._watch)
             self._thread.daemon = True
             self._thread.start()
 
         return self
 
-    def exists(self):
-        try:
-            os.kill(self.pid, 0)
-            return True
-        except OSError as e:
-            return e.errno == errno.EPERM
-        except Exception:
-            return False
-
     def _watch(self):
-        pass
+        pipes = []
+        stdout = self._worker.stdout
+        stderr = self._worker.stderr
+        output = self._output
+        if self.out:
+            pipes.append(stdout)
+        if self.err and self.err != 'stdout':
+            pipes.append(stderr)
+        if pipes:
+            for pipe in pipes:
+                fd = pipe.fileno()
+                fl = fcntl.fcntl(fd, fcntl.F_GETFL)
+                fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
+            data = True
+            while data:
+                out = select.select(pipes, [], [])[0]
+                for p in out:
+                    data = p.read()
+                    if data:
+                        output.add(OutputQueue.STDOUT if p == stdout else OutputQueue.STDERR, data)
+
+        out = self._worker.wait()
+        output.add(OutputQueue.CLOSED, out)
+        self.running = False
 
     def __str__(self):
         return '{0} pid={1}'.format(self.name, self.pid)
 
+    def watch(self):
+        # noinspection PyTypeChecker
+        return self._output.retrieve()
+
+    def remove_output(self, timestamp):
+        self._output.remove(timestamp)
+
 
 # noinspection PyUnusedLocal
-def process_command(sock, args, instance_globals):
+def process_command(sock, args, instance):
     """Create a process.
 You need to specify a name, followed by name=value pairs for the process
 options, followed by the command and args to execute. The name must not contain
@@ -292,24 +360,82 @@ Examples:
                 raise utils.Error('The rlimit value for "%s" must be an integer, not "%s"' % (key, value))
         else:
             kwargs[key] = value
-    p = Process(name, args, env, rlimits, instance_globals, **kwargs)
-    with instance_globals['lock']:
-        return str(p.spawn())
+    watch = int(kwargs.pop('watch', 0))
+    p = Process(name, args, env, rlimits, instance, **kwargs)
+    with instance['globals']['lock']:
+        result = p.spawn()
+    if watch:
+        sock.sendall(cast_bytes('{0}\n'.format(result)))
+        return _do_watch(sock, {name: {'p': result, 't': 0, 'closed': False}}, instance)
+
+    return str(result)
 
 
 # noinspection PyUnusedLocal
-def processes_command(sock, args, instance_globals):
-    """List all active sockets and processes"""
+def processes_command(sock, args, instance):
+    """List all active processes"""
+    instance_globals = instance['globals']
     with instance_globals['lock']:
         return '\n'.join(sorted('{0}'.format(proc) for _, proc in wildcard_iter(instance_globals['processes'], args)))
 
 
 # noinspection PyUnusedLocal
-def close_output_command(sock, args, instance_globals):
+def close_output_command(sock, args, instance):
+    instance_globals = instance['globals']
     with instance_globals['lock']:
         pass
 
 
-def watch_command(sock, args, instance_globals):
+def watch_command(sock, args, instance):
     """Watch a process"""
-    return 'ok'
+    instance_globals = instance['globals']
+    all_processes = instance_globals['processes']
+    with instance_globals['lock']:
+        procs = dict((name, {'p': proc, 't': 0, 'closed': False}) for name, proc in wildcard_iter(all_processes, args, True))
+    if not procs:
+        return 'Nothing to watch'
+    sock.sendall(cast_bytes('Watching {0}\n'.format(len(procs))))
+    return _do_watch(sock, procs, instance)
+
+
+def _do_watch(sock, procs, instance):
+    instance_globals = instance['globals']
+    all_processes = instance_globals['processes']
+    connection = instance['connection']
+    while True:
+        data = []
+        for name, proc in procs.items():
+            t, l = proc['p'].watch()
+            if l:
+                for item in l:
+                    if item.type == OutputQueue.CLOSED:
+                        data.append(cast_bytes('closed:{0}:{1}:{2}'.format(name, item.timestamp, item.data)))
+                        proc['closed'] = True
+                    else:
+                        data.append(cast_bytes('{0}:{1}:{2}:{3}'.format('out' if item.type == OutputQueue.STDOUT else 'err', name, item.timestamp, len(item.data))))
+                        data.append(item.data)
+                proc['t'] = t
+        if data:
+            data.append(b'] ')
+            out = b'\n'.join(data)
+            sock.sendall(out)
+
+            one_line = connection.readline().lower()
+            closed = []
+            for name, proc in procs.items():
+                t = proc['t']
+                if t:
+                    proc['p'].remove_output(t)
+                    if proc['closed']:
+                        closed.append(name)
+            if closed:
+                with instance_globals['lock']:
+                    for name in closed:
+                        del procs[name]
+                        del all_processes[name]
+            if not procs:
+                return 'Nothing left to watch'
+            if one_line == 'q':
+                return 'Stopped watching'
+        else:
+            sleep(.1)
