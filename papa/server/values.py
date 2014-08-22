@@ -3,6 +3,7 @@ from papa.utils import wildcard_iter, Error
 __author__ = 'Scott Maxwell'
 
 
+# noinspection PyUnusedLocal
 def values_command(sock, args, instance):
     """Return all values stored in Papa"""
     instance_globals = instance['globals']
@@ -10,6 +11,7 @@ def values_command(sock, args, instance):
         return '\n'.join(sorted('{0} {1}'.format(key, value) for key, value in wildcard_iter(instance_globals['values'], args)))
 
 
+# noinspection PyUnusedLocal
 def set_command(sock, args, instance):
     """Set or clear a named value. Pass no value to clear.
 
@@ -27,6 +29,7 @@ Examples:
             values.pop(name, None)
 
 
+# noinspection PyUnusedLocal
 def clear_command(sock, args, instance):
     """Clear a named value or set of values. You cannot 'clear *'.
 
@@ -43,6 +46,7 @@ Examples:
             del values[name]
 
 
+# noinspection PyUnusedLocal
 def get_command(sock, args, instance):
     """Get a named value.
 

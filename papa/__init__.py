@@ -1,4 +1,3 @@
-import sys
 import os.path
 import socket
 from threading import Lock
