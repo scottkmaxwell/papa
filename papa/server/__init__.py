@@ -121,26 +121,33 @@ def lookup_command(cmd, commands=top_level_commands):
             return commands[item]
 
 
+class CommandConnection(object):
+    def __init__(self, sock):
+        self.sock = sock
+        self.data = b''
+
+    def readline(self):
+        while not b'\n' in self.data:
+            new_data = self.sock.recv(1024)
+            if not new_data:
+                raise socket.error('done')
+            self.data += new_data
+
+        one_line, self.data = self.data.partition(b'\n')[::2]
+        return cast_string(one_line).strip()
+
+
 def chat_with_a_client(sock, addr, instance_globals, container):
+    connection = CommandConnection(sock)
+    instance = {'globals': instance_globals, 'connection': connection}
     try:
         sock.send(b'Papa is home. Type "help" for commands.\n> ')
 
-        done = False
-        data = b''
-        while not done:
-            while not b'\n' in data:
-                new_data = sock.recv(1024)
-                if not new_data:
-                    done = True
-                    break
-                data += new_data
-            if done:
-                break
-
-            one_line, data = data.partition(b'\n')[::2]
+        while True:
+            one_line = connection.readline()
             args = []
             acc = ''
-            for arg in cast_string(one_line).split(' '):
+            for arg in one_line.split(' '):
                 if arg[-1] == '\\':
                     acc += arg[:-1] + ' '
                 else:
@@ -155,7 +162,7 @@ def chat_with_a_client(sock, addr, instance_globals, container):
                 command = lookup_command(cmd)
                 if command:
                     try:
-                        reply = command(sock, args, instance_globals) or '\n'
+                        reply = command(sock, args, instance) or '\n'
                     except CloseSocket as e:
                         if e.final_message:
                             sock.sendall(cast_bytes(e.final_message))
