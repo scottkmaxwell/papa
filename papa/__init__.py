@@ -3,7 +3,9 @@ import socket
 from threading import Lock
 from time import sleep
 from subprocess import PIPE, STDOUT
+from collections import namedtuple
 import logging
+import select
 from papa.utils import string_type
 
 try:
@@ -15,6 +17,7 @@ __author__ = 'Scott Maxwell'
 __all__ = ['Papa', 'DEBUG_MODE_NONE', 'DEBUG_MODE_THREAD', 'DEBUG_MODE_PROCESS']
 
 log = logging.getLogger('papa.server')
+ProcessOutput = namedtuple('ProcessOutput', 'name timestamp data')
 
 
 def wrap_trailing_slash(value):
@@ -29,6 +32,158 @@ def append_if_not_none(container, **kwargs):
         if value is not None:
             value = wrap_trailing_slash(value)
             container.append('{0}={1}'.format(key, value))
+
+
+class Watcher(object):
+    def __init__(self, papa_object):
+        self.papa_object = papa_object
+        self.connection = papa_object.connection
+        self._fileno = self.connection.sock.fileno()
+        self._need_ack = False
+
+    def __enter__(self):
+        return self
+
+    # noinspection PyUnusedLocal
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+    def __bool__(self):
+        return self.connection is not None
+
+    def __len__(self):
+        return 1 if self.connection is not None else 0
+
+    def fileno(self):
+        return self.connection.sock.fileno()
+
+    def ready(self):
+        try:
+            result = select.select([self], [], [], 0)[0]
+            return True
+        except Exception as e:
+            return False
+
+    def read(self):
+        self.acknowledge()
+        reply = {'out': [], 'err': [], 'closed': []}
+        if self.connection:
+            line = b''
+            while True:
+                line = self.connection.get_one_line_response(b'] ')
+                split = line.split(':')
+                if len(split) < 4:
+                    break
+                result_type, name, timestamp, data = split
+                data = int(data)
+                if result_type != 'closed':
+                    data = self.connection.read_bytes(data + 1)[:-1]
+                result = ProcessOutput(name, float(timestamp), data)
+                reply[result_type].append(result)
+            self._need_ack = line == '] '
+            if not self._need_ack:
+                self.connection.read_bytes(2)
+                if not self.papa_object.connection:
+                    self.papa_object.connection = self.connection
+                else:
+                    self.connection.close()
+                self.connection = None
+                return None
+        return reply['out'], reply['err'], reply['closed']
+
+    def acknowledge(self, send_quit=False):
+        if self._need_ack:
+            self.connection.sock.sendall(b'q\n' if send_quit else b'\n')
+            self._need_ack = False
+
+    def close(self):
+        if self.connection:
+            # if the server is waiting for an ack, we can
+            if self._need_ack:
+                self.acknowledge(True)
+                self.connection.get_full_response()
+                if not self.papa_object.connection:
+                    self.papa_object.connection = self.connection
+                else:
+                    self.connection.close()
+            else:
+                self.connection.close()
+            self.connection = None
+
+
+class ClientCommandConnection(object):
+    def __init__(self, family, location):
+        self.family = family
+        self.location = location
+        self.sock = self._attempt_to_connect()
+        self.data = b''
+
+    def _attempt_to_connect(self):
+        # Try to connect to an existing Papa
+        sock = socket.socket(self.family, socket.SOCK_STREAM)
+        if self.family == socket.AF_INET:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.connect(self.location)
+        return sock
+
+    def send_command(self, command):
+        if isinstance(command, list):
+            command = ' '.join(c.replace(' ', '\ ').replace('\n', '\ ') for c in command if c)
+        command = b(command)
+        self.sock.sendall(command + b'\n')
+
+    def do_command(self, command):
+        self.send_command(command)
+        return self.get_full_response()
+
+    def get_full_response(self):
+        data = self.data
+        self.data = b''
+        while not data.endswith(b'\n> '):
+            new_data = self.sock.recv(1024)
+            if not new_data:
+                raise utils.Error('Lost connection')
+            data += new_data
+
+        data = s(data[:-3])
+        # noinspection PyTypeChecker
+        if data.startswith('Error:'):
+            raise utils.Error(data[7:])
+        return data
+
+    def get_one_line_response(self, alternate_terminator=None):
+        data = self.data
+        while b'\n' not in data:
+            if alternate_terminator and data.endswith(alternate_terminator):
+                break
+            new_data = self.sock.recv(1024)
+            if not new_data:
+                raise utils.Error('Lost connection')
+            data += new_data
+
+        if data.startswith(b'Error:'):
+            self.data = data
+            return self.get_full_response()
+
+        data, self.data = data.partition(b'\n')[::2]
+        return s(data)
+
+    def read_bytes(self, size):
+        data = self.data
+        while len(data) < size:
+            new_data = self.sock.recv(size - len(data))
+            if not new_data:
+                raise utils.Error('Lost connection')
+            data += new_data
+
+        data, self.data = data[:size], data[size:]
+        return data
+
+    def push_newline(self):
+        self.data = b'\n' + self.data
+
+    def close(self):
+        return self.sock.close()
 
 
 class Papa(object):
@@ -54,10 +209,10 @@ class Papa(object):
             self.location = ('127.0.0.1', port_or_path)
 
         # Try to connect to an existing Papa
-        self.sock = None
+        self.connection = None
         self.t = None
         try:
-            self.sock = self._attempt_to_connect()
+            self.connection = ClientCommandConnection(self.family, self.location)
         except Exception:
             for i in range(50):
                 if not Papa.spawned:
@@ -75,16 +230,13 @@ class Papa(object):
                                 daemonize_server(port_or_path)
                             Papa.spawned = True
                 try:
-                    self.sock = self._attempt_to_connect()
+                    self.connection = ClientCommandConnection(self.family, self.location)
                     break
                 except Exception:
                     sleep(.1)
             else:
                 raise utils.Error('Could not connect to Papa in 5 seconds')
-        header = b''
-        # noinspection PyTypeChecker
-        while not header.endswith(b'\n> '):
-            header = self.sock.recv(1024)
+        self.connection.get_full_response()
 
     def __enter__(self):
         return self
@@ -96,6 +248,17 @@ class Papa(object):
             self.t.join()
             Papa.spawned = False
 
+    def _make_extra_connection(self):
+        for i in range(50):
+            try:
+                self.connection = ClientCommandConnection(self.family, self.location)
+                break
+            except Exception:
+                sleep(.1)
+        else:
+            raise utils.Error('Could not connect to Papa in 5 seconds')
+        self.connection.get_full_response()
+
     def _attempt_to_connect(self):
         # Try to connect to an existing Papa
         sock = socket.socket(self.family, socket.SOCK_STREAM)
@@ -104,35 +267,27 @@ class Papa(object):
         sock.connect(self.location)
         return sock
 
+    def _send_command(self, command):
+        if not self.connection:
+            self._make_extra_connection()
+        self.connection.send_command(command)
+
     def _do_command(self, command):
-        if isinstance(command, list):
-            command = ' '.join(c.replace(' ', '\ ') for c in command if c)
-        command = b(command)
-        self.sock.sendall(command + b'\n')
-        data = b''
-        while True:
-            new_data = self.sock.recv(1024)
-            if not new_data:
-                data = s(data).strip()
-                break
-            data += new_data
-            # noinspection PyTypeChecker
-            if data.endswith(b'\n> '):
-                data = s(data[:-3])
-                break
-        # noinspection PyTypeChecker
-        if data.startswith('Error:'):
-            raise utils.Error(data[7:])
-        return data
+        if not self.connection:
+            self._make_extra_connection()
+        return self.connection.do_command(command)
 
     @staticmethod
     def _make_socket_dict(socket_info):
         name, args = socket_info.partition(' ')[::2]
         args = dict(item.partition('=')[::2] for item in args.split(' '))
-        for key in ('backlog', 'port'):
+        for key in ('backlog', 'port', 'fileno'):
             if key in args:
                 args[key] = int(args[key])
         return name, args
+
+    def fileno(self):
+        return self.connection.sock.fileno() if self.connection else None
 
     def sockets(self, *args):
         result = self._do_command(['sockets'] + list(args))
@@ -254,11 +409,16 @@ class Papa(object):
 
     def watch(self, *args):
         command = ['watch'] + list(args)
-        result = self._do_command(command)
-        return result
+        self._send_command(command)
+        result = self.connection.get_one_line_response()
+        watcher = Watcher(self)
+        self.connection = None
+        return watcher
 
     def close(self):
-        self.sock.close()
+        if self.connection:
+            self.connection.close()
+            self.connection = None
 
     @classmethod
     def set_debug_mode(cls, mode=True, quit_when_connection_closed=False):
