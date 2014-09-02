@@ -121,7 +121,7 @@ def lookup_command(cmd, commands=top_level_commands):
             return commands[item]
 
 
-class CommandConnection(object):
+class ServerCommandConnection(object):
     def __init__(self, sock):
         self.sock = sock
         self.data = b''
@@ -138,7 +138,7 @@ class CommandConnection(object):
 
 
 def chat_with_a_client(sock, addr, instance_globals, container):
-    connection = CommandConnection(sock)
+    connection = ServerCommandConnection(sock)
     instance = {'globals': instance_globals, 'connection': connection}
     try:
         sock.send(b'Papa is home. Type "help" for commands.\n> ')
