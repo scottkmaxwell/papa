@@ -7,6 +7,7 @@ import fcntl
 from time import time, sleep
 from papa import utils
 from papa.utils import extract_name_value_pairs, wildcard_iter, cast_bytes
+from papa.server.papa_socket import find_socket
 from subprocess import Popen, PIPE, STDOUT
 from threading import Thread, Lock
 from collections import deque, namedtuple
@@ -116,6 +117,7 @@ class Process(object):
                  working_dir=None, shell=False, uid=None, gid=None,
                  stdout=1, stderr=1, bufsize='1m'):
 
+        self.instance = instance
         instance_globals = instance['globals']
         self._processes = instance_globals['processes']
 
@@ -174,7 +176,6 @@ class Process(object):
             self.gid = None
 
         # sockets created before fork, should be let go after.
-        self._sockets = []
         self._worker = None
         self._thread = None
         self._lock = None
@@ -203,10 +204,27 @@ class Process(object):
             else:
                 raise utils.Error('Process for {0} has already been created - {1}'.format(self.name, str(existing)))
         else:
+            managed_sockets = []
             fixed_args = []
             for arg in self.args:
                 if '$(socket.' in arg:
-                    pass
+                    start = arg.find('$(socket.') + 9
+                    end = arg.find(')', start)
+                    if end == -1:
+                        raise utils.Error('Process for {0} argument starts with "$(socket." but has no closing parenthesis'.format(self.name))
+                    socket_name = arg[start:end]
+                    try:
+                        s = find_socket(socket_name, self.instance)
+                    except Exception:
+                        raise utils.Error('Socket {0} not found'.format(socket_name))
+                    else:
+                        if s.reuseport:
+                            sock = s.clone_for_reuseport()
+                            managed_sockets.append(sock)
+                            fileno = sock.fileno()
+                        else:
+                            fileno = s.socket.fileno()
+                    arg = '{0}{1}{2}'.format(arg[:start - 9], fileno, arg[end + 1:])
                 fixed_args.append(arg)
 
             def preexec():
@@ -274,7 +292,8 @@ class Process(object):
                                  **extra)
 
             # let go of sockets created only for self.worker to inherit
-            self._sockets = []
+            for sock in managed_sockets:
+                sock.close()
             self._processes[self.name] = self
             self.pid = self._worker.pid
             self._output = OutputQueue(self.bufsize)
