@@ -253,3 +253,8 @@ def cleanup(instance_globals):
     with instance_globals['lock']:
         for p in list(instance_globals['sockets']['by_name'].values()):
             p.close()
+
+
+def find_socket(name, instance):
+    instance_globals = instance['globals']
+    return instance_globals['sockets']['by_name'][name]
