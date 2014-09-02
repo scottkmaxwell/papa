@@ -147,18 +147,18 @@ def chat_with_a_client(sock, addr, instance_globals, container):
             one_line = connection.readline()
             args = []
             acc = ''
-            for arg in one_line.split(' '):
-                if arg[-1] == '\\':
-                    acc += arg[:-1] + ' '
-                else:
-                    acc += arg
-                    args.append(acc.strip())
-                    acc = ''
-            if acc:
-                args.append(acc)
+            if one_line:
+                for arg in one_line.split(' '):
+                    if arg[-1] == '\\':
+                        acc += arg[:-1] + ' '
+                    else:
+                        acc += arg
+                        args.append(acc.strip())
+                        acc = ''
+                if acc:
+                    args.append(acc)
 
-            cmd = args.pop(0).lower()
-            if cmd:
+                cmd = args.pop(0).lower()
                 command = lookup_command(cmd)
                 if command:
                     try:
