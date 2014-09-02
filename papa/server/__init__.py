@@ -230,21 +230,18 @@ def socket_server(port_or_path, single_socket_mode=False):
         log.error(e)
         sys.exit(1)
 
-    s.listen(0 if single_socket_mode else 5)
+    s.listen(5)
     log.info('Listening')
     while True:
         try:
             sock, addr = s.accept()
             log.info('Started client session with %s:%d', addr[0], addr[1])
             container = []
-            if single_socket_mode:
-                chat_with_a_client(sock, addr, instance_globals, None)
-            else:
-                t = Thread(target=chat_with_a_client, args=(sock, addr, instance_globals, container))
-                container.append(t)
-                active_threads.append(t)
-                t.daemon = True
-                t.start()
+            t = Thread(target=chat_with_a_client, args=(sock, addr, instance_globals, container))
+            container.append(t)
+            active_threads.append(t)
+            t.daemon = True
+            t.start()
             s.settimeout(.5)
         except socket.timeout:
             pass
