@@ -82,6 +82,8 @@ class PapaSocket(object):
             data.append('interface={0}'.format(self.interface))
         if self.reuseport:
             data.append('reuseport={0}'.format(self.reuseport))
+        if self.socket:
+            data.append('fileno={0}'.format(self.socket.fileno()))
         return ' '.join(data)
 
     def __eq__(self, other):
