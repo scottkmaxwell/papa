@@ -163,6 +163,27 @@ class PapaSocket(object):
             log.info('Created socket %s', self)
         return self
 
+    def clone_for_reuseport(self):
+        s = socket.socket(self.family, self.socket_type)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if self.interface:
+            import IN
+            if hasattr(IN, 'SO_BINDTODEVICE'):
+                s.setsockopt(socket.SOL_SOCKET, IN.SO_BINDTODEVICE,
+                             self.interface + '\0')
+        try:
+            s.bind((self._host, self.port))
+        except socket.error as e:
+            raise utils.Error('Bind failed on {0}:{1}: {2}'.format(self.host, self.port, e))
+
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        s.listen(self.backlog)
+        try:
+            s.set_inheritable(True)
+        except Exception:
+            pass
+        return s
+
     def close(self):
         if self.socket:
             self.socket.close()
