@@ -412,7 +412,7 @@ def watch_command(sock, args, instance):
     with instance_globals['lock']:
         procs = dict((name, {'p': proc, 't': 0, 'closed': False}) for name, proc in wildcard_iter(all_processes, args, True))
     if not procs:
-        return 'Nothing to watch'
+        raise utils.Error('Nothing to watch')
     sock.sendall(cast_bytes('Watching {0}\n'.format(len(procs))))
     return _do_watch(sock, procs, instance)
 
