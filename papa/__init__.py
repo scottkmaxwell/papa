@@ -59,9 +59,9 @@ class Watcher(object):
 
     def ready(self):
         try:
-            result = select.select([self], [], [], 0)[0]
+            select.select([self], [], [], 0)
             return True
-        except Exception as e:
+        except Exception:
             return False
 
     def read(self):
