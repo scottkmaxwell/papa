@@ -1,5 +1,6 @@
 import socket
 import sys
+import select
 
 __author__ = 'Scott Maxwell'
 
@@ -96,3 +97,27 @@ def wildcard_iter(d, matches, required=False):
                 raise Error('{0} not found'.format(match))
     for name in matched:
         yield name, d[name]
+
+
+def recv_with_retry(sock, size=1024):
+    while True:
+        try:
+            return sock.recv(size)
+        except socket.error as e:
+            if e.errno == 35:
+                select.select([sock], [], [])
+            else:
+                raise
+
+
+def send_with_retry(sock, data):
+    while data:
+        try:
+            sent = sock.send(data)
+            if sent:
+                data = data[sent:]
+        except socket.error as e:
+            if e.errno == 35:
+                select.select([], [sock], [])
+            else:
+                raise
