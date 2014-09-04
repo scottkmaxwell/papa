@@ -58,27 +58,29 @@ class OutputQueue(object):
         self.bufsize = bufsize
         self.q = deque()
         self._used = 0
+        self._closed = False
 
     def add(self, output_type, data=None):
-        with self.lock:
-            data_tuple = OutputQueue.Item(output_type, time(), data)
-            if output_type != OutputQueue.CLOSED and data:
-                if len(data) >= self.bufsize:
-                    self.q.clear()
-                    self._used = len(data)
-                else:
-                    self._used += len(data)
-                    while self._used > self.bufsize:
-                        first = self.q.popleft()
-                        self._used -= len(first.data)
-            self.q.append(data_tuple)
+        if not self._closed:
+            with self.lock:
+                if not self._closed:
+                    data_tuple = OutputQueue.Item(output_type, time(), data)
+                    if output_type != OutputQueue.CLOSED and data:
+                        if len(data) >= self.bufsize:
+                            self.q.clear()
+                            self._used = len(data)
+                        else:
+                            self._used += len(data)
+                            while self._used > self.bufsize:
+                                first = self.q.popleft()
+                                self._used -= len(first.data)
+                    self.q.append(data_tuple)
 
     def retrieve(self):
-        if self.q:
-            with self.lock:
-                if self.q:
-                    l = list(self.q)
-                    return l[-1].timestamp, l
+        with self.lock:
+            if self.q:
+                l = list(self.q)
+                return l[-1].timestamp, l
         return 0, None
 
     def remove(self, timestamp):
@@ -88,6 +90,13 @@ class OutputQueue(object):
                 item = q.popleft()
                 if self._used:
                     self._used -= len(item.data)
+
+    def close(self):
+        with self.lock:
+            self.bufsize = 0
+            self.q = deque()
+            self._used = 0
+            self._closed = True
 
     def __len__(self):
         return len(self.q)
@@ -188,8 +197,8 @@ class Process(object):
         # sockets created before fork, should be let go after.
         self._worker = None
         self._thread = None
-        self._lock = None
         self._output = None
+        self._auto_close = False
 
     def __eq__(self, other):
         return (
@@ -343,20 +352,25 @@ class Process(object):
                 fl = fcntl.fcntl(fd, fcntl.F_GETFL)
                 fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
             data = True
-            while data:
+            while data and not self._auto_close:
                 out = select.select(pipes, [], [])[0]
                 for p in out:
                     data = p.read()
                     if data:
                         output.add(OutputQueue.STDOUT if p == stdout else OutputQueue.STDERR, data)
 
-        out = self._worker.wait()
-        output.add(OutputQueue.CLOSED, out)
-        self.running = False
         if stdout:
             stdout.close()
         if stderr:
             stderr.close()
+        out = self._worker.wait()
+        self.running = False
+        if self._auto_close:
+            instance_globals = self.instance['globals']
+            with instance_globals['lock']:
+                instance_globals['processes'].pop(self.name, None)
+        else:
+            output.add(OutputQueue.CLOSED, out)
 
     def __str__(self):
         return '{0} pid={1} running={2}'.format(self.name, self.pid, self.running)
@@ -367,6 +381,12 @@ class Process(object):
 
     def remove_output(self, timestamp):
         self._output.remove(timestamp)
+
+    def close_output(self):
+        self._output.close()
+        self._auto_close = True
+        if not self.running:
+            self.instance['globals']['processes'].pop(self.name, None)
 
 
 # noinspection PyUnusedLocal
@@ -429,7 +449,8 @@ def processes_command(sock, args, instance):
 def close_output_command(sock, args, instance):
     instance_globals = instance['globals']
     with instance_globals['lock']:
-        pass
+        for name, p in wildcard_iter(instance_globals['processes'], args, required=True):
+            p.close_output()
 
 
 def watch_command(sock, args, instance):

@@ -686,6 +686,46 @@ class ProcessTest(unittest.TestCase):
                 out, err, close = self.gather_output(w)
             self.assertEqual(b'test\nand do some more\n', out[0].data)
 
+    def test_process_with_close_output_late(self):
+        with papa.Papa() as p:
+            self.assertDictEqual({}, p.processes())
+            socket_reply = p.make_socket('echo_socket')
+            p.make_process('echo', sys.executable, args=('executables/echo_server.py', '$(socket.echo_socket.fileno)'), working_dir=here)
+
+            s = socket.socket()
+            s.connect(('127.0.0.1', socket_reply['port']))
+
+            s.send(b'test\n')
+            msg = b''
+            while len(msg) < 5:
+                msg += s.recv(5)
+            self.assertEqual(b'test\n', msg)
+            s.close()
+
+            sleep(.2)
+            p.close_output_channels('echo')
+            self.assertDictEqual({}, p.processes())
+
+    def test_process_with_close_output_early(self):
+        with papa.Papa() as p:
+            self.assertDictEqual({}, p.processes())
+            socket_reply = p.make_socket('echo_socket')
+            p.make_process('echo', sys.executable, args=('executables/echo_server.py', '$(socket.echo_socket.fileno)'), working_dir=here)
+            p.close_output_channels('echo')
+
+            s = socket.socket()
+            s.connect(('127.0.0.1', socket_reply['port']))
+
+            s.send(b'test\n')
+            msg = b''
+            while len(msg) < 5:
+                msg += s.recv(5)
+            self.assertEqual(b'test\n', msg)
+            s.close()
+
+            sleep(.2)
+            self.assertDictEqual({}, p.processes())
+
     def test_bad_socket_reference(self):
         with papa.Papa() as p:
             self.assertRaises(papa.Error, p.make_process, 'bad', sys.executable, args=('executables/echo_server.py', '$(socket.echo_socket.fileno)'), working_dir=here)
