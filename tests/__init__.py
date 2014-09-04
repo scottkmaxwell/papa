@@ -297,6 +297,31 @@ class ProcessTest(unittest.TestCase):
             self.assertEqual(0, close[0].data)
             self.assertDictEqual({}, p.processes())
 
+    def test_process_with_watch_immediately(self):
+        with papa.Papa() as p:
+            self.assertDictEqual({}, p.processes())
+            with p.make_process('write3', sys.executable, args='executables/write_three_lines.py', working_dir=here, uid=os.environ['LOGNAME'], env=os.environ, watch_immediately=True) as w:
+                out, err, close = self.gather_output(w)
+            self.assertEqual(3, len(out))
+            self.assertEqual(1, len(err))
+            self.assertEqual(1, len(close))
+            self.assertEqual('write3', out[0].name)
+            self.assertEqual('write3', out[1].name)
+            self.assertEqual('write3', out[2].name)
+            self.assertEqual('write3', err[0].name)
+            self.assertEqual('write3', close[0].name)
+            self.assertLess(out[0].timestamp, out[1].timestamp)
+            self.assertLess(out[1].timestamp, out[2].timestamp)
+            self.assertLessEqual(out[2].timestamp, err[0].timestamp)
+            self.assertLessEqual(out[2].timestamp, close[0].timestamp)
+            self.assertLessEqual(err[0].timestamp, close[0].timestamp)
+            self.assertEqual(b'Version: ' + cast_bytes(sys.version.partition(' ')[0]) + b'\n', out[0].data)
+            self.assertEqual(b'Executable: ' + cast_bytes(sys.executable) + b'\n', out[1].data)
+            self.assertEqual(b'Args: \n', out[2].data)
+            self.assertEqual(b'done', err[0].data)
+            self.assertEqual(0, close[0].data)
+            self.assertDictEqual({}, p.processes())
+
     def test_process_with_err_redirected_to_out(self):
         with papa.Papa() as p:
             self.assertDictEqual({}, p.processes())

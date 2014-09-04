@@ -410,6 +410,8 @@ class Papa(object):
                     command.extend(args)
                 except TypeError:
                     command.append(str(args))
+        if watch_immediately:
+            return self._do_watch(command)
         return self._make_process_dict(self._do_command(command))[1]
 
     def close_output_channels(self, *args):
@@ -417,7 +419,9 @@ class Papa(object):
         return True
 
     def watch(self, *args):
-        command = ['watch'] + list(args)
+        return self._do_watch(['watch'] + list(args))
+
+    def _do_watch(self, command):
         self._send_command(command)
         self.connection.get_one_line_response()
         watcher = Watcher(self)
