@@ -349,6 +349,10 @@ class Process(object):
         out = self._worker.wait()
         output.add(OutputQueue.CLOSED, out)
         self.running = False
+        if stdout:
+            stdout.close()
+        if stderr:
+            stderr.close()
 
     def __str__(self):
         return '{0} pid={1}'.format(self.name, self.pid)
