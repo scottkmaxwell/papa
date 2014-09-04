@@ -123,8 +123,12 @@ class ClientCommandConnection(object):
         sock = socket.socket(self.family, socket.SOCK_STREAM)
         if self.family == socket.AF_INET:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.connect(self.location)
-        return sock
+        try:
+            sock.connect(self.location)
+            return sock
+        except Exception:
+            sock.close()
+            raise
 
     def send_command(self, command):
         if isinstance(command, list):
