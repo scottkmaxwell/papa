@@ -292,14 +292,17 @@ def main():
     parser.add_argument('-d', '--debug', action='store_true', help='run in debug mode')
     parser.add_argument('-u', '--unix-socket', help='path to unix socket to bind')
     parser.add_argument('-p', '--port', default=20202, type=int, help='port to bind on localhost (default 20202)')
+    parser.add_argument('--daemonize', action='store_true', help='daemonize the papa server')
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO if args.debug else logging.ERROR)
-    try:
-        socket_server(args.unix_socket or args.port)
-    except Exception as e:
-        log.error(e)
-
+    if args.daemonize:
+        daemonize_server(args.unix_socket or args.port)
+    else:
+        try:
+            socket_server(args.unix_socket or args.port)
+        except Exception as e:
+            log.error(e)
 
 if __name__ == '__main__':
     main()
