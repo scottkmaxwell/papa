@@ -286,9 +286,9 @@ A `dict` is returned with process names as keys and process details as values.
 
 ### `make_process`
 
-Every process must have a unique `name` and a `command`. All other parameters are
-optional. The `make_process` method returns a `dict` that contains the pid of
-the process.
+Every process must have a unique `name` and an `executable`. All other
+parameters are optional. The `make_process` method returns a `dict` that
+contains the pid of the process.
 
 The `args` parameter should be a tuple of command-line arguments. If you have
 only one argument, papa conveniently supports passing that as a string.
@@ -324,7 +324,7 @@ to do `env=os.environ` to copy your environment to the new process.
 
 If you want to run a Python application and you wish to use the same Python
 executable as your client application, a useful trick is to pass `sys.executable`
-as the `command` and the path to the Python script as the first element of your
+as the `executable` and the path to the Python script as the first element of your
 `args` tuple. If you have no other args, just pass the path as a string to
 `args`.
 
