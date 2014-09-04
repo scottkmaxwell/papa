@@ -473,8 +473,8 @@ def _do_watch(sock, procs, instance):
             if closed:
                 with instance_globals['lock']:
                     for name in closed:
-                        del procs[name]
-                        del all_processes[name]
+                        procs.pop(name, None)
+                        all_processes.pop(name, None)
             if not procs:
                 return 'Nothing left to watch'
             if one_line == 'q':
