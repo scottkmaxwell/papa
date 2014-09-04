@@ -57,6 +57,7 @@ class Watcher(object):
     def fileno(self):
         return self.connection.sock.fileno()
 
+    @property
     def ready(self):
         try:
             select.select([self], [], [], 0)

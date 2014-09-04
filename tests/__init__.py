@@ -275,7 +275,7 @@ class ProcessTest(unittest.TestCase):
 
             with p.watch('write*') as w:
                 select.select([w], [], [])
-                self.assertTrue(w.ready())
+                self.assertTrue(w.ready)
                 out, err, close = self.gather_output(w)
             self.assertEqual(3, len(out))
             self.assertEqual(1, len(err))
@@ -414,7 +414,7 @@ class ProcessTest(unittest.TestCase):
 
             with p.watch('write3.*') as w:
                 select.select([w], [], [])
-                self.assertTrue(w.ready())
+                self.assertTrue(w.ready)
                 out, err, close = self.gather_output(w)
             self.assertEqual(6, len(out))
             self.assertEqual(2, len(err))
@@ -552,7 +552,7 @@ class ProcessTest(unittest.TestCase):
 
             with p.watch('write*') as w:
                 select.select([w], [], [])
-                self.assertTrue(w.ready())
+                self.assertTrue(w.ready)
                 out, err, close = self.gather_output(w)
             self.assertEqual(1, len(out))
             self.assertEqual(1, len(err))
