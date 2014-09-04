@@ -28,6 +28,13 @@ try:
 except ImportError:
     resource = None
 
+try:
+    # noinspection PyUnresolvedReferences,PyUnboundLocalVariable
+    FileNotFoundError
+except NameError as e:
+    # noinspection PyShadowingBuiltins
+    FileNotFoundError = OSError
+
 __author__ = 'Scott Maxwell'
 
 logger = logging.getLogger('papa.server')
@@ -287,11 +294,17 @@ class Process(object):
                 else:
                     extra['stderr'] = PIPE
 
-            self._worker = Popen(fixed_args, preexec_fn=preexec,
-                                 close_fds=False, shell=self.shell,
-                                 cwd=self.working_dir, env=self.env, bufsize=-1,
-                                 **extra)
-
+            try:
+                self._worker = Popen(fixed_args, preexec_fn=preexec,
+                                     close_fds=False, shell=self.shell,
+                                     cwd=self.working_dir, env=self.env, bufsize=-1,
+                                     **extra)
+            except FileNotFoundError as file_not_found_exception:
+                if not os.path.exists(fixed_args[0]):
+                    raise utils.Error('Bad command - {0}'.format(file_not_found_exception))
+                if self.working_dir and not os.path.isdir(self.working_dir):
+                    raise utils.Error('Bad working_dir - {0}'.format(file_not_found_exception))
+                raise
             # let go of sockets created only for self.worker to inherit
             for sock in managed_sockets:
                 sock.close()
