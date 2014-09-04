@@ -355,7 +355,7 @@ class Process(object):
             stderr.close()
 
     def __str__(self):
-        return '{0} pid={1}'.format(self.name, self.pid)
+        return '{0} pid={1} running={2}'.format(self.name, self.pid, self.running)
 
     def watch(self):
         # noinspection PyTypeChecker
