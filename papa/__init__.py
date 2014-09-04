@@ -231,6 +231,7 @@ class Papa(object):
                                 self.t = t
                             else:
                                 from papa.server import daemonize_server
+                                log.info('Daemonizing Papa')
                                 daemonize_server(port_or_path)
                             Papa.spawned = True
                 try:
@@ -238,7 +239,8 @@ class Papa(object):
                     break
                 except Exception:
                     sleep(.1)
-            else:
+            if not self.connection:
+                log.error('Could not connect to Papa in 5 seconds')
                 raise utils.Error('Could not connect to Papa in 5 seconds')
         self.connection.get_full_response()
 
@@ -248,7 +250,7 @@ class Papa(object):
     # noinspection PyUnusedLocal
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
-        if self._single_connection_mode:
+        if self._single_connection_mode and self.t:
             self.t.join()
             Papa.spawned = False
 
@@ -417,7 +419,7 @@ class Papa(object):
     def watch(self, *args):
         command = ['watch'] + list(args)
         self._send_command(command)
-        result = self.connection.get_one_line_response()
+        self.connection.get_one_line_response()
         watcher = Watcher(self)
         self.connection = None
         return watcher
