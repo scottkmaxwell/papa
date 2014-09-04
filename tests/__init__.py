@@ -3,12 +3,26 @@ import sys
 import os.path
 import socket
 from time import sleep
-import unittest
+try:
+    # noinspection PyPackageRequirements
+    import unittest2 as unittest
+except ImportError:
+    import unittest
 import select
 import papa
 from papa.server.papa_socket import unix_socket
 from papa.utils import cast_bytes
 from tempfile import gettempdir
+import logging
+
+logging.basicConfig()
+import inspect
+
+isdebugging = False
+for frame in inspect.stack():
+    if frame[1].endswith("pydevd.py"):
+        isdebugging = True
+        break
 
 here = os.path.dirname(os.path.realpath(__file__))
 
@@ -17,16 +31,21 @@ class SocketTest(unittest.TestCase):
     def setUp(self):
         papa.set_debug_mode(quit_when_connection_closed=True)
 
+    def check_subset(self, expected, result):
+        for key, value in expected.items():
+            self.assertIn(key, result)
+            self.assertEqual(value, result[key])
+
     def test_inet(self):
         with papa.Papa() as p:
             expected = {'type': 'stream', 'family': 'inet', 'backlog': 5, 'host': '127.0.0.1'}
             reply = p.make_socket('inet_sock')
-            self.assertDictContainsSubset(expected, reply)
+            self.check_subset(expected, reply)
             self.assertIn('port', reply)
             p.close_socket('inet_sock')
             self.assertDictEqual({}, p.sockets())
             reply = p.make_socket('inet_sock', reuseport=True)
-            self.assertDictContainsSubset(expected, reply)
+            self.check_subset(expected, reply)
             self.assertIn('port', reply)
 
     def test_inet_interface(self):
@@ -51,12 +70,12 @@ class SocketTest(unittest.TestCase):
         with papa.Papa() as p:
             expected = {'type': 'stream', 'family': 'inet6', 'backlog': 5, 'host': '::1'}
             reply = p.make_socket('inet6_sock', family=socket.AF_INET6)
-            self.assertDictContainsSubset(expected, reply)
+            self.check_subset(expected, reply)
             self.assertIn('port', reply)
             p.close_socket('inet6_sock')
             self.assertDictEqual({}, p.sockets())
             reply = p.make_socket('inet6_sock', family=socket.AF_INET6, reuseport=True)
-            self.assertDictContainsSubset(expected, reply)
+            self.check_subset(expected, reply)
             self.assertIn('port', reply)
 
     def test_inet6_interface(self):
@@ -97,15 +116,15 @@ class SocketTest(unittest.TestCase):
             expected = {'type': 'stream', 'family': 'inet', 'backlog': 5, 'host': '127.0.0.1'}
 
             reply = p.make_socket('inet.0')
-            self.assertDictContainsSubset(expected, reply)
+            self.check_subset(expected, reply)
             self.assertIn('port', reply)
 
             reply = p.make_socket('inet.1')
-            self.assertDictContainsSubset(expected, reply)
+            self.check_subset(expected, reply)
             self.assertIn('port', reply)
 
             reply = p.make_socket('other')
-            self.assertDictContainsSubset(expected, reply)
+            self.check_subset(expected, reply)
             self.assertIn('port', reply)
 
             reply = p.sockets('inet.*')
@@ -183,6 +202,28 @@ class ProcessTest(unittest.TestCase):
     def setUp(self):
         papa.set_debug_mode(quit_when_connection_closed=True)
 
+    @staticmethod
+    def _merge_lines(output):
+        if len(output) > 1:
+            by_name = {}
+            merged_lines = False
+            for line in output:
+                by_name.setdefault(line.name, []).append(line)
+            for named_lines in by_name.values():
+                line_number = 1
+                while line_number < len(named_lines):
+                    line = named_lines[line_number]
+                    prev = named_lines[line_number - 1]
+                    if line.timestamp - prev.timestamp > .05:
+                        line_number += 1
+                    else:
+                        named_lines[line_number - 1] = papa.ProcessOutput(prev.name, prev.timestamp, prev.data + line.data)
+                        del named_lines[line_number]
+                        merged_lines = True
+            if merged_lines:
+                output = sorted((item for items in by_name.values() for item in items), key=lambda x: x.timestamp)
+        return output
+
     def gather_output(self, watcher):
         out = []
         err = []
@@ -193,21 +234,42 @@ class ProcessTest(unittest.TestCase):
                 out.extend(reply[0])
                 err.extend(reply[1])
                 close.extend(reply[2])
-        return out, err, close
+        return self._merge_lines(out), self._merge_lines(err), close
+
+    if isdebugging:
+        _non_debug_gather_output = gather_output
+
+        def _filter_list(self, output):
+            remove = []
+            for line_number, line in enumerate(output):
+                if line.data.startswith(b'pydev debugger: process ') and b'is connecting' in line.data:
+                    if line.data.endswith(b'is connecting\n\n'):
+                        remove.append(line_number)
+                    else:
+                        end = line.data.find(b'is connecting\n\n')
+                        output[line_number] = papa.ProcessOutput(line.name, line.timestamp, line.data[end + 14:])
+            for line_number in reversed(remove):
+                del output[line_number]
+
+        def gather_output(self, watcher):
+            out, err, close = self._non_debug_gather_output(watcher)
+            self._filter_list(out)
+            self._filter_list(err)
+            return out, err, close
 
     def test_process_with_out_and_err(self):
         with papa.Papa() as p:
             self.assertDictEqual({}, p.processes())
             reply1 = p.make_process('write3', sys.executable, args='executables/write_three_lines.py', working_dir=here, uid=os.environ['LOGNAME'], env=os.environ)
             self.assertIn('pid', reply1)
-            self.assertTrue(isinstance(reply1['pid'], int))
+            self.assertIsInstance(reply1['pid'], int)
             reply = p.processes()
             self.assertEqual(1, len(list(reply.keys())))
             self.assertEqual('write3', list(reply.keys())[0])
             self.assertIn('pid', list(reply.values())[0])
 
             reply2 = p.make_process('write3', sys.executable, args='executables/write_three_lines.py', working_dir=here, uid=os.environ['LOGNAME'], env=os.environ)
-            self.assertDictEqual(reply1, reply2)
+            self.assertEqual(reply1['pid'], reply2['pid'])
 
             self.assertRaises(papa.Error, p.watch, 'not_there')
 
@@ -240,7 +302,7 @@ class ProcessTest(unittest.TestCase):
             self.assertDictEqual({}, p.processes())
             reply1 = p.make_process('write3', sys.executable, args='executables/write_three_lines.py', working_dir=here, uid=os.environ['LOGNAME'], env=os.environ, stderr=papa.STDOUT)
             self.assertIn('pid', reply1)
-            self.assertTrue(isinstance(reply1['pid'], int))
+            self.assertIsInstance(reply1['pid'], int)
             reply = p.processes()
             self.assertEqual(1, len(list(reply.keys())))
             self.assertEqual('write3', list(reply.keys())[0])
@@ -269,7 +331,7 @@ class ProcessTest(unittest.TestCase):
             self.assertDictEqual({}, p.processes())
             reply1 = p.make_process('write3', sys.executable, args='executables/write_three_lines.py', working_dir=here, uid=os.environ['LOGNAME'], env=os.environ, stdout=papa.DEVNULL)
             self.assertIn('pid', reply1)
-            self.assertTrue(isinstance(reply1['pid'], int))
+            self.assertIsInstance(reply1['pid'], int)
             reply = p.processes()
             self.assertEqual(1, len(list(reply.keys())))
             self.assertEqual('write3', list(reply.keys())[0])
@@ -292,7 +354,7 @@ class ProcessTest(unittest.TestCase):
             self.assertDictEqual({}, p.processes())
             reply1 = p.make_process('write3', sys.executable, args='executables/write_three_lines.py', working_dir=here, uid=os.environ['LOGNAME'], env=os.environ, bufsize=0)
             self.assertIn('pid', reply1)
-            self.assertTrue(isinstance(reply1['pid'], int))
+            self.assertIsInstance(reply1['pid'], int)
             reply = p.processes()
             self.assertEqual(1, len(list(reply.keys())))
             self.assertEqual('write3', list(reply.keys())[0])
@@ -312,11 +374,11 @@ class ProcessTest(unittest.TestCase):
             self.assertDictEqual({}, p.processes())
             reply1 = p.make_process('write3.0', sys.executable, args='executables/write_three_lines.py', working_dir=here, uid=os.environ['LOGNAME'], env=os.environ)
             self.assertIn('pid', reply1)
-            self.assertTrue(isinstance(reply1['pid'], int))
+            self.assertIsInstance(reply1['pid'], int)
 
             reply2 = p.make_process('write3.1', sys.executable, args='executables/write_three_lines.py', working_dir=here, uid=os.environ['LOGNAME'], env=os.environ)
             self.assertIn('pid', reply2)
-            self.assertTrue(isinstance(reply2['pid'], int))
+            self.assertIsInstance(reply2['pid'], int)
 
             reply = p.processes()
             self.assertEqual(2, len(list(reply.keys())))
@@ -350,12 +412,12 @@ class ProcessTest(unittest.TestCase):
             self.assertDictEqual({}, p.processes())
             reply1 = p.make_process('write3.0', sys.executable, args='executables/write_three_lines.py', working_dir=here, uid=os.environ['LOGNAME'], env=os.environ)
             self.assertIn('pid', reply1)
-            self.assertTrue(isinstance(reply1['pid'], int))
+            self.assertIsInstance(reply1['pid'], int)
 
             sleep(.2)
             reply2 = p.make_process('write3.1', sys.executable, args='executables/write_three_lines.py', working_dir=here, uid=os.environ['LOGNAME'], env=os.environ)
             self.assertIn('pid', reply2)
-            self.assertTrue(isinstance(reply2['pid'], int))
+            self.assertIsInstance(reply2['pid'], int)
 
             reply = p.processes()
             self.assertEqual(2, len(list(reply.keys())))
@@ -380,11 +442,11 @@ class ProcessTest(unittest.TestCase):
             self.assertDictEqual({}, p.processes())
             reply1 = p.make_process('write3.0', sys.executable, args='executables/write_three_lines.py', working_dir=here, uid=os.environ['LOGNAME'], env=os.environ)
             self.assertIn('pid', reply1)
-            self.assertTrue(isinstance(reply1['pid'], int))
+            self.assertIsInstance(reply1['pid'], int)
 
             reply2 = p.make_process('write3.1', sys.executable, args='executables/write_three_lines.py', working_dir=here, uid=os.environ['LOGNAME'], env=os.environ)
             self.assertIn('pid', reply2)
-            self.assertTrue(isinstance(reply2['pid'], int))
+            self.assertIsInstance(reply2['pid'], int)
 
             reply = p.processes()
             self.assertEqual(2, len(list(reply.keys())))
@@ -456,12 +518,12 @@ class ProcessTest(unittest.TestCase):
             self.assertDictEqual({}, p.processes())
             reply1 = p.make_process('write3', sys.executable, args='executables/write_three_lines.py', working_dir=here, uid=os.environ['LOGNAME'], env=os.environ, bufsize=14)
             self.assertIn('pid', reply1)
-            self.assertTrue(isinstance(reply1['pid'], int))
+            self.assertIsInstance(reply1['pid'], int)
             reply = p.processes()
             self.assertEqual(1, len(list(reply.keys())))
             self.assertEqual('write3', list(reply.keys())[0])
             self.assertIn('pid', list(reply.values())[0])
-            sleep(.3)
+            sleep(.5)
 
             with p.watch('write*') as w:
                 select.select([w], [], [])
@@ -484,11 +546,17 @@ class ProcessTest(unittest.TestCase):
     def test_one_process_two_parallel_watchers(self):
         with papa.Papa() as p:
             self.assertDictEqual({}, p.processes())
-            reply1 = p.make_process('write3', sys.executable, args='executables/write_three_lines.py', working_dir=here, uid=os.environ['LOGNAME'], env=os.environ)
+            reply = p.make_process('write3', sys.executable, args='executables/write_three_lines.py', working_dir=here, uid=os.environ['LOGNAME'], env=os.environ)
+            self.assertIn('pid', reply)
+            self.assertIn('running', reply)
+            self.assertIsInstance(reply['pid'], int)
+            self.assertIsInstance(reply['running'], bool)
 
             w1 = p.watch('write*')
             w2 = p.watch('write*')
             out1, err1, close1 = w1.read()
+            if isdebugging and not out1 and err1 and err1[0].data.startswith('pydev debugger'):
+                out1, err1, close1 = w1.read()
             out2, err2, close2 = w2.read()
             self.assertEqual(out1[0], out2[0])
             w1.close()
@@ -497,10 +565,16 @@ class ProcessTest(unittest.TestCase):
     def test_one_process_two_serial_watchers(self):
         with papa.Papa() as p:
             self.assertDictEqual({}, p.processes())
-            reply1 = p.make_process('write3', sys.executable, args='executables/write_three_lines.py', working_dir=here, uid=os.environ['LOGNAME'], env=os.environ)
+            reply = p.make_process('write3', sys.executable, args='executables/write_three_lines.py', working_dir=here, uid=os.environ['LOGNAME'], env=os.environ)
+            self.assertIn('pid', reply)
+            self.assertIn('running', reply)
+            self.assertIsInstance(reply['pid'], int)
+            self.assertIsInstance(reply['running'], bool)
 
             with p.watch('write*') as w:
                 out1, err1, close1 = w.read()
+                if isdebugging and not out1 and err1 and err1[0].data.startswith('pydev debugger'):
+                    out1, err1, close1 = w.read()
             with p.watch('write*') as w:
                 out2, err2, close2 = self.gather_output(w)
             self.assertLess(out1[0].timestamp, out2[0].timestamp)
@@ -512,7 +586,7 @@ class ProcessTest(unittest.TestCase):
             self.assertIn('fileno', reply)
             port = reply['port']
 
-            reply = p.make_process('echo1', sys.executable, args=('executables/echo_server.py', '$(socket.echo_socket)'))
+            reply = p.make_process('echo1', sys.executable, args=('executables/echo_server.py', '$(socket.echo_socket)'), working_dir=here)
             self.assertIn('pid', reply)
 
             s = socket.socket()
@@ -541,7 +615,7 @@ class ProcessTest(unittest.TestCase):
             self.assertIn('port', reply)
             port = reply['port']
 
-            reply = p.make_process('echo1', sys.executable, args=('executables/echo_server.py', '$(socket.echo_socket)'))
+            reply = p.make_process('echo1', sys.executable, args=('executables/echo_server.py', '$(socket.echo_socket)'), working_dir=here)
             self.assertIn('pid', reply)
 
             s = socket.socket()
@@ -563,6 +637,18 @@ class ProcessTest(unittest.TestCase):
             with p.watch('echo*') as w:
                 out, err, close = self.gather_output(w)
             self.assertEqual(b'test\nand do some more\n', out[0].data)
+
+    def test_bad_socket_reference(self):
+        with papa.Papa() as p:
+            self.assertRaises(papa.Error, p.make_process, 'bad', sys.executable, args=('executables/echo_server.py', '$(socket.echo_socket)'), working_dir=here)
+
+    def test_bad_process(self):
+        with papa.Papa() as p:
+            self.assertRaises(papa.Error, p.make_process, 'bad', sys.executable + '-blah')
+
+    def test_bad_working_dir(self):
+        with papa.Papa() as p:
+            self.assertRaises(papa.Error, p.make_process, 'bad', sys.executable, working_dir=here + '-blah')
 
 if __name__ == '__main__':
     unittest.main()
