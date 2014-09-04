@@ -10,14 +10,15 @@ if len(sys.argv) != 2:
     sys.exit(1)
 
 listen_socket = socket.fromfd(int(sys.argv[1]), socket.AF_INET, socket.SOCK_STREAM)
-connection, address = listen_socket.accept()
+sock, address = listen_socket.accept()
 
 while True:
-    read_sockets = select.select([connection], [], [])[0]
-    sock = read_sockets[0]
+    select.select([sock], [], [])
     data = sock.recv(100)
     if data:
         sock.send(data)
         sys.stdout.write(cast_string(data))
     else:
         break
+
+sock.close()
