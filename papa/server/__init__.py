@@ -199,7 +199,8 @@ def chat_with_a_client(sock, addr, instance_globals, container):
 
 
 def cleanup(instance_globals):
-    papa_socket.cleanup(instance_globals)
+    if 'lock' in instance_globals:
+        papa_socket.cleanup(instance_globals)
 
 
 def socket_server(port_or_path, single_socket_mode=False):
@@ -259,7 +260,11 @@ def socket_server(port_or_path, single_socket_mode=False):
             s.settimeout(None)
     s.close()
     papa_socket.cleanup(instance_globals)
-    atexit.unregister(cleanup)
+    try:
+        # noinspection PyUnresolvedReferences
+        atexit.unregister(cleanup)
+    except AttributeError:
+        del instance_globals['lock']
 
 
 def daemonize_server(port_or_path):
