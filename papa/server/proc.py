@@ -237,6 +237,9 @@ class Process(object):
                     arg = '{0}{1}{2}'.format(arg[:start - 9], fileno, arg[end + 1:])
                 fixed_args.append(arg)
 
+            if not fixed_args:
+                raise utils.Error('No command')
+
             def preexec():
                 streams = [sys.stdin]
                 if not self.out:
