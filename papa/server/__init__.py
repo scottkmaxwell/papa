@@ -168,6 +168,8 @@ def chat_with_a_client(sock, addr, instance_globals, container):
                         if e.final_message:
                             sock.sendall(cast_bytes(e.final_message))
                         break
+                    except papa.utils.Error as e:
+                        reply = 'Error: {0}\n'.format(e)
                     except Exception as e:
                         reply = 'Error: {0}\n'.format(e)
                 else:
