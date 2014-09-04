@@ -363,6 +363,9 @@ class Papa(object):
         for key in ('pid',):
             if key in args:
                 args[key] = int(args[key])
+        for key in ('running',):
+            if key in args:
+                args[key] = args[key] == 'True'
         return name, args
 
     def processes(self, *args):
