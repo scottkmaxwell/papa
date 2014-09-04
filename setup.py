@@ -30,4 +30,9 @@ setup(
                  "Topic :: Software Development"],
     tests_require=['unittest2'] if sys.version_info[:2] == (2, 6) else [],
     test_suite="tests",
+    entry_points="""\
+    [console_scripts]
+    papa = papa.server:main
+    """,
+    zip_safe=True
 )
