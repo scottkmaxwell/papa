@@ -378,7 +378,7 @@ class Papa(object):
         # noinspection PyTypeChecker
         return dict(self._make_process_dict(item) for item in result.split('\n'))
 
-    def make_process(self, name, cmd, args=None, env=None, working_dir=None, uid=None, gid=None, rlimits=None, stdout=None, stderr=None, bufsize=None, watch_immediately=None):
+    def make_process(self, name, command, args=None, env=None, working_dir=None, uid=None, gid=None, rlimits=None, stdout=None, stderr=None, bufsize=None, watch_immediately=None):
         command = ['process', name]
         append_if_not_none(command, working_dir=working_dir, uid=uid, gid=gid, bufsize=bufsize)
         if watch_immediately:
@@ -402,7 +402,7 @@ class Papa(object):
         if rlimits:
             for key, value in rlimits.items():
                 command.append('rlimit.{0}={1}'.format(key.lower(), value))
-        command.append(cmd)
+        command.append(command)
         if args:
             if isinstance(args, string_type):
                 command.append(args)
