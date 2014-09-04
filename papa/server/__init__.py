@@ -4,7 +4,8 @@ import socket
 from threading import Thread, Lock
 import logging
 import resource
-from papa.utils import Error, cast_bytes, cast_string
+import papa
+from papa.utils import Error, cast_bytes, cast_string, recv_with_retry, send_with_retry
 from papa.server import papa_socket, values, proc
 import atexit
 
@@ -128,7 +129,7 @@ class ServerCommandConnection(object):
 
     def readline(self):
         while not b'\n' in self.data:
-            new_data = self.sock.recv(1024)
+            new_data = recv_with_retry(self.sock)
             if not new_data:
                 raise socket.error('done')
             self.data += new_data
@@ -166,7 +167,7 @@ def chat_with_a_client(sock, addr, instance_globals, container):
                         reply = command(sock, args, instance) or '\n'
                     except CloseSocket as e:
                         if e.final_message:
-                            sock.sendall(cast_bytes(e.final_message))
+                            send_with_retry(sock, cast_bytes(e.final_message))
                         break
                     except papa.utils.Error as e:
                         reply = 'Error: {0}\n'.format(e)
@@ -182,7 +183,7 @@ def chat_with_a_client(sock, addr, instance_globals, container):
                 reply = cast_bytes(reply)
             else:
                 reply = b'> '
-            sock.sendall(reply)
+            send_with_retry(sock, reply)
     except socket.error:
         pass
 

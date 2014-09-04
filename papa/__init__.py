@@ -6,7 +6,7 @@ from subprocess import PIPE, STDOUT
 from collections import namedtuple
 import logging
 import select
-from papa.utils import string_type
+from papa.utils import string_type, recv_with_retry, send_with_retry
 
 try:
     from subprocess import DEVNULL
@@ -93,7 +93,7 @@ class Watcher(object):
 
     def acknowledge(self, send_quit=False):
         if self._need_ack:
-            self.connection.sock.sendall(b'q\n' if send_quit else b'\n')
+            send_with_retry(self.connection.sock, b'q\n' if send_quit else b'\n')
             self._need_ack = False
 
     def close(self):
@@ -130,7 +130,7 @@ class ClientCommandConnection(object):
         if isinstance(command, list):
             command = ' '.join(c.replace(' ', '\ ').replace('\n', '\ ') for c in command if c)
         command = b(command)
-        self.sock.sendall(command + b'\n')
+        send_with_retry(self.sock, command + b'\n')
 
     def do_command(self, command):
         self.send_command(command)
@@ -140,7 +140,7 @@ class ClientCommandConnection(object):
         data = self.data
         self.data = b''
         while not data.endswith(b'\n> '):
-            new_data = self.sock.recv(1024)
+            new_data = recv_with_retry(self.sock)
             if not new_data:
                 raise utils.Error('Lost connection')
             data += new_data
@@ -156,7 +156,7 @@ class ClientCommandConnection(object):
         while b'\n' not in data:
             if alternate_terminator and data.endswith(alternate_terminator):
                 break
-            new_data = self.sock.recv(1024)
+            new_data = recv_with_retry(self.sock)
             if not new_data:
                 raise utils.Error('Lost connection')
             data += new_data
@@ -171,7 +171,7 @@ class ClientCommandConnection(object):
     def read_bytes(self, size):
         data = self.data
         while len(data) < size:
-            new_data = self.sock.recv(size - len(data))
+            new_data = recv_with_retry(self.sock, size - len(data))
             if not new_data:
                 raise utils.Error('Lost connection')
             data += new_data

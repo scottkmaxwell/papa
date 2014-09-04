@@ -6,7 +6,8 @@ import select
 import fcntl
 from time import time, sleep
 from papa import utils
-from papa.utils import extract_name_value_pairs, wildcard_iter, cast_bytes
+from papa.utils import extract_name_value_pairs, wildcard_iter, cast_bytes, \
+    send_with_retry
 from papa.server.papa_socket import find_socket
 from subprocess import Popen, PIPE, STDOUT
 from threading import Thread, Lock
@@ -384,7 +385,7 @@ Examples:
     with instance['globals']['lock']:
         result = p.spawn()
     if watch:
-        sock.sendall(cast_bytes('{0}\n'.format(result)))
+        send_with_retry(sock, cast_bytes('{0}\n'.format(result)))
         return _do_watch(sock, {name: {'p': result, 't': 0, 'closed': False}}, instance)
 
     return str(result)
@@ -413,7 +414,7 @@ def watch_command(sock, args, instance):
         procs = dict((name, {'p': proc, 't': 0, 'closed': False}) for name, proc in wildcard_iter(all_processes, args, True))
     if not procs:
         raise utils.Error('Nothing to watch')
-    sock.sendall(cast_bytes('Watching {0}\n'.format(len(procs))))
+    send_with_retry(sock, cast_bytes('Watching {0}\n'.format(len(procs))))
     return _do_watch(sock, procs, instance)
 
 
@@ -437,7 +438,7 @@ def _do_watch(sock, procs, instance):
         if data:
             data.append(b'] ')
             out = b'\n'.join(data)
-            sock.sendall(out)
+            send_with_retry(sock, out)
 
             one_line = connection.readline().lower()
             closed = []
