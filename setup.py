@@ -2,6 +2,7 @@ try:
     from setuptools import setup
 except ImportError:
     from distutils.core import setup
+import sys
 
 setup(
     name="papa",
@@ -26,5 +27,7 @@ setup(
                  "Programming Language :: Python :: 3",
                  "Programming Language :: Python :: 3.3",
                  "Programming Language :: Python :: 3.4",
-                 "Topic :: Software Development"]
+                 "Topic :: Software Development"],
+    tests_require=['unittest2'] if sys.version_info[:2] == (2, 6) else [],
+    test_suite="tests",
 )
