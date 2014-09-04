@@ -85,7 +85,9 @@ class OutputQueue(object):
         with self.lock:
             q = self.q
             while q and q[0].timestamp <= timestamp:
-                q.popleft()
+                item = q.popleft()
+                if self._used:
+                    self._used -= len(item.data)
 
     def __len__(self):
         return len(self.q)
