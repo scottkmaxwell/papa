@@ -586,7 +586,7 @@ class ProcessTest(unittest.TestCase):
             self.assertIn('fileno', reply)
             port = reply['port']
 
-            reply = p.make_process('echo1', sys.executable, args=('executables/echo_server.py', '$(socket.echo_socket)'), working_dir=here)
+            reply = p.make_process('echo1', sys.executable, args=('executables/echo_server.py', '$(socket.echo_socket.fileno)'), working_dir=here)
             self.assertIn('pid', reply)
 
             s = socket.socket()
@@ -609,13 +609,36 @@ class ProcessTest(unittest.TestCase):
                 out, err, close = self.gather_output(w)
             self.assertEqual(b'test\nand do some more\n', out[0].data)
 
+    def test_echo_server_with_echo_client(self):
+        with papa.Papa() as p:
+            reply = p.make_socket('echo_socket')
+            self.assertIn('port', reply)
+            self.assertIn('fileno', reply)
+            port = reply['port']
+
+            reply = p.make_process('echo.server', sys.executable, args=('executables/echo_server.py', '$(socket.echo_socket.fileno)'), working_dir=here)
+            self.assertIn('pid', reply)
+
+            reply = p.make_process('echo.client', sys.executable, args=('executables/echo_client.py', '$(socket.echo_socket.port)'), working_dir=here)
+            self.assertIn('pid', reply)
+
+            with p.watch('echo.*') as w:
+                out, err, close = self.gather_output(w)
+            self.assertEqual(2, len(out))
+            self.assertEqual(2, len(close))
+            self.assertEqual(b'howdy\n', out[0].data)
+            self.assertEqual(b'howdy\n', out[1].data)
+            self.assertIn(out[0].name, ('echo.client', 'echo.server'))
+            self.assertIn(out[1].name, ('echo.client', 'echo.server'))
+            self.assertNotEqual(out[0].name, out[1].name)
+
     def test_echo_server_with_reuseport(self):
         with papa.Papa() as p:
             reply = p.make_socket('echo_socket', reuseport=True)
             self.assertIn('port', reply)
             port = reply['port']
 
-            reply = p.make_process('echo1', sys.executable, args=('executables/echo_server.py', '$(socket.echo_socket)'), working_dir=here)
+            reply = p.make_process('echo1', sys.executable, args=('executables/echo_server.py', '$(socket.echo_socket.fileno)'), working_dir=here)
             self.assertIn('pid', reply)
 
             s = socket.socket()
@@ -640,7 +663,7 @@ class ProcessTest(unittest.TestCase):
 
     def test_bad_socket_reference(self):
         with papa.Papa() as p:
-            self.assertRaises(papa.Error, p.make_process, 'bad', sys.executable, args=('executables/echo_server.py', '$(socket.echo_socket)'), working_dir=here)
+            self.assertRaises(papa.Error, p.make_process, 'bad', sys.executable, args=('executables/echo_server.py', '$(socket.echo_socket.fileno)'), working_dir=here)
 
     def test_bad_process(self):
         with papa.Papa() as p:

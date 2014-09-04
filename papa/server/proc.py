@@ -222,19 +222,23 @@ class Process(object):
                     end = arg.find(')', start)
                     if end == -1:
                         raise utils.Error('Process for {0} argument starts with "$(socket." but has no closing parenthesis'.format(self.name))
-                    socket_name = arg[start:end]
+                    socket_and_part = arg[start:end]
+                    socket_name, part = socket_and_part.rpartition('.')[::2]
+                    if not part or part not in ('port', 'fileno'):
+                        raise utils.Error('You forgot to specify either ".port" or ".fileno" after the name')
                     try:
                         s = find_socket(socket_name, self.instance)
                     except Exception:
                         raise utils.Error('Socket {0} not found'.format(socket_name))
+                    if part == 'port':
+                        replacement = s.port
+                    elif s.reuseport:
+                        sock = s.clone_for_reuseport()
+                        managed_sockets.append(sock)
+                        replacement = sock.fileno()
                     else:
-                        if s.reuseport:
-                            sock = s.clone_for_reuseport()
-                            managed_sockets.append(sock)
-                            fileno = sock.fileno()
-                        else:
-                            fileno = s.socket.fileno()
-                    arg = '{0}{1}{2}'.format(arg[:start - 9], fileno, arg[end + 1:])
+                        replacement = s.socket.fileno()
+                    arg = '{0}{1}{2}'.format(arg[:start - 9], replacement, arg[end + 1:])
                 fixed_args.append(arg)
 
             if not fixed_args:
