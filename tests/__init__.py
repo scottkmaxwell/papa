@@ -639,7 +639,6 @@ class ProcessTest(unittest.TestCase):
             reply = p.make_socket('echo_socket')
             self.assertIn('port', reply)
             self.assertIn('fileno', reply)
-            port = reply['port']
 
             reply = p.make_process('echo.server', sys.executable, args=('executables/echo_server.py', '$(socket.echo_socket.fileno)'), working_dir=here)
             self.assertIn('pid', reply)

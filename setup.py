@@ -6,7 +6,7 @@ import sys
 
 setup(
     name="papa",
-    version="1.0.0",
+    version="0.9.0",
     packages=["papa", "papa.server"],
     author="Scott Maxwell",
     author_email="scott@codecobblers.com",
