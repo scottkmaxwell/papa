@@ -16,7 +16,7 @@ except ImportError:
 __author__ = 'Scott Maxwell'
 __all__ = ['Papa', 'DEBUG_MODE_NONE', 'DEBUG_MODE_THREAD', 'DEBUG_MODE_PROCESS']
 
-log = logging.getLogger('papa.server')
+log = logging.getLogger('papa.client')
 ProcessOutput = namedtuple('ProcessOutput', 'name timestamp data')
 
 
