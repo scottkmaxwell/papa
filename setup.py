@@ -6,21 +6,23 @@ try:
 except ImportError:
     from distutils.core import setup
 
-
-def get_description():
-    with open(os.path.abspath(os.path.join(os.path.dirname(__file__), 'README.md')), 'r') as f:
-        return f.read()
+try:
+    from pypandoc import convert
+    read_md = lambda f: convert(f, 'rst')
+except ImportError:
+    print("warning: pypandoc module not found, could not convert Markdown to RST")
+    read_md = lambda f: open(f, 'r').read()
 
 setup(
     name="papa",
-    version="0.9.2",
+    version="0.9.3",
     packages=["papa", "papa.server"],
     author="Scott Maxwell",
     author_email="scott@codecobblers.com",
     maintainer="Scott Maxwell",
     url="https://github.com/scottkmaxwell/papa",
     description="Simple socket and process kernel",
-    long_description=get_description(),
+    long_description=read_md('README.md'),
     license="MIT",
     classifiers=["Development Status :: 5 - Production/Stable",
                  "Environment :: Console",
