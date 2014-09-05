@@ -1,26 +1,31 @@
+Summary
+=======
 
-# papa
-
-## Description
 **papa** is a process kernel. It contains both a client library and a server
-piece for creating sockets and launching processes from a stable parent process.
+component for creating sockets and launching processes from a stable parent
+process.
 
-## Dependencies
-It is tested under following Python versions:
+Dependencies
+============
+
+Papa has no external dependencies, and it never will! It has been tested under the following Python versions:
 
 - 2.6
 - 2.7
+- 3.2
 - 3.3
 - 3.4
 
 
-## Installation
-You can install it from Python Package Index (PyPI):
+Installation
+============
 
-	$ pip install papa
+    $> pip install papa
 
 
-## Purpose
+Purpose
+=======
+
 Sometimes you want to be able to start a process and have it survive on its own,
 but you still want to be able to capture the output. You could daemonize it
 and pipe the output to files, but that is a pain and lacks flexibility when it
@@ -41,9 +46,9 @@ add the remaining features.
 
 Papa has 3 types of things it manages:
 
-- sockets
-- values
-- processes
+- Sockets
+- Values
+- Processes
 
 Here is what papa does:
 
@@ -61,25 +66,31 @@ Here is what it does NOT do:
 - Communicate with processes in any way other than to capture their output
 
 
-## Sockets
+Sockets
+=======
+
 By managing sockets, papa can manage interprocess communication. Just create a
 socket in papa and then pass the file descriptor to your process to use it.
-See the [Circus docs](http://circus.readthedocs.org/en/0.11.1/for-ops/sockets/) for a very good description of why this is so useful.
+See the [Circus docs](http://circus.readthedocs.org/en/0.11.1/for-ops/sockets/)
+for a very good description of why this is so useful.
 
 Papa can create Unix, INET and INET6 sockets. By default it will create an INET
 TCP socket on an OS-assigned port.
 
-You can pass either the file descriptor (fileno) or the port or a socket to a
+You can pass either the file descriptor (fileno) or the port of a socket to a
 process by including a pattern like this in the process arguments:
 
 - `$(socket.my_awesome_socket_name.fileno)`
 - `$(socket.my_awesome_socket_name.port)`
 
 
-## Values
+Values
+======
+
 Papa has a very simple name/value pair storage. This works much like environment
 variables. The values must be text, so if you want to store a complex structure,
-you will need to encode and decode with something like the [JSON module](https://docs.python.org/3/library/json.html).
+you will need to encode and decode with something like the
+[JSON module](https://docs.python.org/3/library/json.html).
 
 The primary purpose of this facility is to store state information for your
 process that will survive between restarts. For instance, a process manager can
@@ -89,13 +100,17 @@ then go about checking to see if anything on the machine has changed. Are all
 processes that should be running actually running?
 
 
-## Processes
+Processes
+=========
+
 Processes can be started with or without output management. You can specify a
 maximum size for output to be cached. Each started process has a management
 thread in the Papa kernel watching its state and capturing output if necessary.
 
 
-## A Note on Naming (Namespacing)
+A Note on Naming (Namespacing)
+==============================
+
 Sockets, values and processes all have unique names. A name can only represent
 one item per class. So you could have an "aack" socket, an "aack" value and an
 "aack" process, but you cannot have two "aack" processes.
@@ -118,7 +133,9 @@ to see all processes managed by circus, or query for `circus.waitress.*` to
 see all waitress processes managed by circus.
 
 
-## Starting the kernel
+Starting the kernel
+===================
+
 There are two ways to start the kernel. You can run it as a process, or you can
 just try to access it from the client library and allow it to autostart. The
 client library uses a lock to ensure that multiple threads do not start the
@@ -135,7 +152,9 @@ once when your application is starting and then just instantiate the Papa object
 with no parameters.
 
 
-## Telnet interface
+Telnet interface
+================
+
 Papa has been designed so that you can communicate with the process kernel
 entirely without code. Just start the Papa server, then do this:
 
@@ -157,43 +176,49 @@ circus and supervisor namespaces, do this:
     values circus.* supervisor.*
 
 
-## Creating a Connection
+Creating a Connection
+=====================
+
 You can create either long-lived or short-lived connections to the Papa kernel.
 If you want to have a long-lived connection, just create a Papa object to
 connect and close it when done, like this:
 
-	class MyObject(object):
-		def __init__(self):
-	    	self.papa = Papa()
+    class MyObject(object):
+        def __init__(self):
+            self.papa = Papa()
 
-	    def start_stuff(self):
-		    self.papa.make_socket('uwsgi')
-	    	self.papa.make_process('uwsgi', 'env/bin/uwsgi', args=('--ini', 'uwsgi.ini', '--socket', 'fd://$(socket.uwsgi.fileno)'), working_dir='/Users/aackbar/awesome', env=os.environ)
-	        self.papa.make_process('http_receiver', sys.executable, args=('http.py', '$(socket.uwsgi.port)'), working_dir='/Users/aackbar/awesome', env=os.environ)
+        def start_stuff(self):
+            self.papa.make_socket('uwsgi')
+            self.papa.make_process('uwsgi', 'env/bin/uwsgi', args=('--ini', 'uwsgi.ini', '--socket', 'fd://$(socket.uwsgi.fileno)'), working_dir='/Users/aackbar/awesome', env=os.environ)
+            self.papa.make_process('http_receiver', sys.executable, args=('http.py', '$(socket.uwsgi.port)'), working_dir='/Users/aackbar/awesome', env=os.environ)
 
-		def close(self):
-	    	self.papa.close()
+        def close(self):
+            self.papa.close()
 
 If you want to just fire off a few commands and leave, it is better to use the
 `with` mechanism like this:
 
-	from papa import Papa
+    from papa import Papa
 	
-	with Papa() as p:
-    	print(p.sockets())
-	    print(p.make_socket('uwsgi', port=8080))
-    	print(p.sockets())
-	    print(p.make_process('uwsgi', 'env/bin/uwsgi', args=('--ini', 'uwsgi.ini', '--socket', 'fd://$(socket.uwsgi.fileno)'), working_dir='/Users/aackbar/awesome', env=os.environ))
-    	print(p.make_process('http_receiver', sys.executable, args=('http.py', '$(socket.uwsgi.port)'), working_dir='/Users/aackbar/awesome', env=os.environ))
-	    print(p.processes())
+    with Papa() as p:
+        print(p.sockets())
+        print(p.make_socket('uwsgi', port=8080))
+        print(p.sockets())
+        print(p.make_process('uwsgi', 'env/bin/uwsgi', args=('--ini', 'uwsgi.ini', '--socket', 'fd://$(socket.uwsgi.fileno)'), working_dir='/Users/aackbar/awesome', env=os.environ))
+        print(p.make_process('http_receiver', sys.executable, args=('http.py', '$(socket.uwsgi.port)'), working_dir='/Users/aackbar/awesome', env=os.environ))
+        print(p.processes())
 
 This will make a new connection, do a bunch of work, then close the connection.
 
 
-## Socket Commands
+Socket Commands
+===============
+
 There are 3 socket commands.
 
-### `sockets`
+`p.sockets(*args)`
+------------------
+
 The `sockets` command takes a list of socket names to get info about. All of
 these are valid:
 
@@ -203,15 +228,17 @@ these are valid:
 
 A `dict` is returned with socket names as keys and socket details as values.
 
-### `make_socket`
+`p.make_socket(name, host=None, port=None, family=None, socket_type=None, backlog=None, path=None, umask=None, interface=None, reuseport=None)`
+-----------------------------------------------------------------------------------------------------------------------------------------------
+
 All parameters are optional except for the name. To create a standard TCP socket
 on port 8080, you can do this:
 
-	p.make_socket('circus.uwsgi', port=8080)
+    p.make_socket('circus.uwsgi', port=8080)
 
 To make a Unix socket, do this:
 
-	p.make_socket('circus.uwsgi', path='/tmp/uwsgi.sock')
+    p.make_socket('circus.uwsgi', path='/tmp/uwsgi.sock')
 
 A path for a Unix socket must be an absolute path or `make_socket` will raise a
 `papa.Error` exception.
@@ -225,7 +252,9 @@ exception if some parameters differ.
 
 See the `make_sockets` method of the Papa object for other parameters.
 
-### `close_socket`
+`p.close_socket(*args)`
+-----------------------
+
 The `close_socket` command also takes a list of socket names. All of these are
 valid:
 
@@ -237,10 +266,14 @@ processes that were already started using the file descriptor of the socket will
 continue to use the copy they inherited.
 
 
-## Value Commands
+Value Commands
+==============
+
 There are 4 value commands.
 
-### `values`
+`p.values(*args)`
+-----------------
+
 The `values` command takes a list of values to retrieve. All of these are valid:
 
 - `p.values()`
@@ -249,19 +282,27 @@ The `values` command takes a list of values to retrieve. All of these are valid:
 
 A `dict` will be returned with all matching names and values.
 
-### `set`
+`p.set(name, value=None)`
+-------------------------
+
 To set a value, do this:
 
-`p.set('circus.uswgi', value)`
+    p.set('circus.uswgi', value)
 
-### `get`
+You can clear a single value by setting it to `None`.
+
+`p.get(name)`
+-------------
+
 To retrieve a value, do this:
 
-`value = p.get('circus.uwsgi')`
+    value = p.get('circus.uwsgi')
 
 If no value is stored by that name, `None` will be returned.
 
-### `clear`
+`p.clear(*args)`
+----------------
+
 To clear a value or values, do something like this:
 
 - `p.clear('circus.*')`
@@ -271,10 +312,14 @@ You cannot clear all variables so passing no names or passing `*` will raise
 a `papa.Error` exception.
 
 
-## Process Commands
+Process Commands
+================
+
 There are 4 process commands:
 
-### `processes`
+`p.processes(*args)`
+--------------------
+
 The `processes` command takes a list of process names to get info about. All of
 these are valid:
 
@@ -284,7 +329,8 @@ these are valid:
 
 A `dict` is returned with process names as keys and process details as values.
 
-### `make_process`
+`p.make_process(name, executable, args=None, env=None, working_dir=None, uid=None, gid=None, rlimits=None, stdout=None, stderr=None, bufsize=None, watch_immediately=None)`
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 Every process must have a unique `name` and an `executable`. All other
 parameters are optional. The `make_process` method returns a `dict` that
@@ -337,15 +383,20 @@ the same as doing `p.make_process(name, ...)` followed immediately by
 If all you want to do is launch an application and monitor its output, this is
 a good way to go.
 
-### `close_output`
+`p.close_output_channels(*args)`
+--------------------------------
+
 If you do not care about retrieving the output or the exit code for a process,
-you can use `close_output` to tell the papa kernel to close the output buffers
-and automatically remove the process from the process list when it exits.
+you can use `close_output_channels` to tell the papa kernel to close the output
+buffers and automatically remove the process from the process list when it
+exits.
 
-- `p.close_output('circus.logger')`
-- `p.close_output('circus.uwsgi', 'circus.nginx.*', 'circus.logger')`
+- `p.close_output_channels('circus.logger')`
+- `p.close_output_channels('circus.uwsgi', 'circus.nginx.*', 'circus.logger')`
 
-### `watch`
+`p.watch(*args)`
+----------------
+
 The `watch` command returns a `Watcher` object for the specified process or
 processes. That object uses a separate socket to retrieve the output of
 the processes it is watching.
@@ -360,34 +411,36 @@ its output until it closes, then use the `set` command to update your saved
 status, all of that can occur with a single connection.
 
 
-## The Watcher object
+The Watcher object
+==================
+
 When you use `watch` or when you do `make_process` with `watch_immediately=True`,
 you get back a `Watcher` object.
 
 You can use watchers manually or with a context manager. Here is an example
 without a context manager:
 
-	class MyLogger(object):
-		def __init__(self, watcher):
-	    	self.watcher = watcher
+    class MyLogger(object):
+        def __init__(self, watcher):
+            self.watcher = watcher
 
-	    def save_stuff(self):
-	        if self.watcher and self.watcher.ready:
-	            out, err, closed = self.watcher.read()
-	            ... save it ...
-	            self.watcher.acknowledge()  # remove it from the buffer
+        def save_stuff(self):
+            if self.watcher and self.watcher.ready:
+                out, err, closed = self.watcher.read()
+                ... save it ...
+                self.watcher.acknowledge()  # remove it from the buffer
 
-		def close(self):
-	    	self.watcher.close()
+        def close(self):
+            self.watcher.close()
 
 If you are running your logger in a separate thread anyway, you might want to
 just use a context manager, like this:
 
-	with p.watch('aack') as watcher:
-	    while watcher:
-	        out, err, closed = watcher.read()  # block until something arrives
-	        ... save it ...
-	        watcher.acknowledge()  # remove it from the buffer
+    with p.watch('aack') as watcher:
+        while watcher:
+            out, err, closed = watcher.read()  # block until something arrives
+            ... save it ...
+            watcher.acknowledge()  # remove it from the buffer
 
 The `Watcher` object has a `fileno` method, so it can be used with `select.select`,
 like this:
@@ -417,10 +470,14 @@ use a single watcher, like this:
             ... save it ...
             # watcher.acknowledge() - no need since watcher.read will do it for us
 
-### `ready`
+`w.ready`
+---------
+
 This property is `True` if the `Watcher` has data available to read on the socket.
 
-### `read`
+`w.read()`
+----------
+
 Read will grab all waiting output from the `Watcher` and return a `tuple` of
 `(out, err, closed)`. Each of these is an array of `papa.ProcessOutput` objects.
 An output object is actually a `namedtuple` with 3 values: `name`, `timestamp`,
@@ -437,26 +494,34 @@ The `read` method will block if no data is ready to read. If you do not want to
 block, use either the `ready` property or a mechanism such as `select.select`
 before calling `read`.
 
-### `acknowledge`
+`w.acknowledge()`
+-----------------
+
 Just because your have read output from a process, the papa kernel cannot know
 that you successfully logged it. Maybe you crashed or were shutdown before you
 had the chance. So the papa kernel will hold onto the data until you acknowledge
 receipt. This can be done either by calling `acknowledge`, or by doing a
 subsequent `read` or a `close`.
 
-### `close`
+`w.close()`
+-----------
+
 When you are done with a `Watcher`, be sure to close it. That will release the
 socket and potentially even return the socket back to the original `Papa` object.
 It will also send off a final `acknowledge` if necessary.
 
 If you use a context manager, the `close` happens automatically.
 
-### `if watcher:`
+`if watcher:`
+-------------
+
 A boolean check on the `Watcher` object will return `True` if it is still
 active and `False` if it has received and acknowledged a close message from all
 processes it is monitoring.
 
-### WARNING: Trouble with multiple watchers for the same process
+WARNING: There should be only one
+---------------------------------
+
 You will get very screwy results if you have multiple watchers for the same
 process. Each will get the available data, then acknowledge receipt at some
 point, removing that data from the queue. Based on timing, both will get

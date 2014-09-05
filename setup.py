@@ -1,18 +1,26 @@
+import os
+import sys
+
 try:
     from setuptools import setup
 except ImportError:
     from distutils.core import setup
-import sys
+
+
+def get_description():
+    with open(os.path.abspath(os.path.join(os.path.dirname(__file__), 'README.md')), 'r') as f:
+        return f.read()
 
 setup(
     name="papa",
-    version="0.9.0",
+    version="0.9.2",
     packages=["papa", "papa.server"],
     author="Scott Maxwell",
     author_email="scott@codecobblers.com",
     maintainer="Scott Maxwell",
     url="https://github.com/scottkmaxwell/papa",
-    description="Simple socket and process container",
+    description="Simple socket and process kernel",
+    long_description=get_description(),
     license="MIT",
     classifiers=["Development Status :: 5 - Production/Stable",
                  "Environment :: Console",
