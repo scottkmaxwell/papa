@@ -92,16 +92,17 @@ class Watcher(object):
                 return None
         return reply['out'], reply['err'], reply['closed']
 
-    def acknowledge(self, send_quit=False):
+    def acknowledge(self):
         if self._need_ack:
-            send_with_retry(self.connection.sock, b'q\n' if send_quit else b'\n')
+            send_with_retry(self.connection.sock, b'\n')
             self._need_ack = False
 
     def close(self):
         if self.connection:
             # if the server is waiting for an ack, we can
             if self._need_ack:
-                self.acknowledge(True)
+                send_with_retry(self.connection.sock, b'q\n')
+                self._need_ack = False
                 self.connection.get_full_response()
                 if not self.papa_object.connection:
                     self.papa_object.connection = self.connection
