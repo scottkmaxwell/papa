@@ -38,6 +38,7 @@ class Watcher(object):
     def __init__(self, papa_object):
         self.papa_object = papa_object
         self.connection = papa_object.connection
+        self.exit_code = {}
         self._fileno = self.connection.sock.fileno()
         self._need_ack = False
 
@@ -77,7 +78,9 @@ class Watcher(object):
                     break
                 result_type, name, timestamp, data = split
                 data = int(data)
-                if result_type != 'closed':
+                if result_type == 'closed':
+                    self.exit_code[name] = data
+                else:
                     data = self.connection.read_bytes(data + 1)[:-1]
                 result = ProcessOutput(name, float(timestamp), data)
                 reply[result_type].append(result)

@@ -277,6 +277,7 @@ class ProcessTest(unittest.TestCase):
                 select.select([w], [], [])
                 self.assertTrue(w.ready)
                 out, err, close = self.gather_output(w)
+                exit_code = w.exit_code['write3']
             self.assertEqual(3, len(out))
             self.assertEqual(1, len(err))
             self.assertEqual(1, len(close))
@@ -295,6 +296,7 @@ class ProcessTest(unittest.TestCase):
             self.assertEqual(b'Args: \n', out[2].data)
             self.assertEqual(b'done', err[0].data)
             self.assertEqual(0, close[0].data)
+            self.assertEqual(0, exit_code)
             self.assertDictEqual({}, p.processes())
 
     def test_process_with_watch_immediately(self):
@@ -302,6 +304,7 @@ class ProcessTest(unittest.TestCase):
             self.assertDictEqual({}, p.processes())
             with p.make_process('write3', sys.executable, args='executables/write_three_lines.py', working_dir=here, uid=os.environ['LOGNAME'], env=os.environ, watch_immediately=True) as w:
                 out, err, close = self.gather_output(w)
+                exit_code = w.exit_code['write3']
             self.assertEqual(3, len(out))
             self.assertEqual(1, len(err))
             self.assertEqual(1, len(close))
@@ -320,6 +323,7 @@ class ProcessTest(unittest.TestCase):
             self.assertEqual(b'Args: \n', out[2].data)
             self.assertEqual(b'done', err[0].data)
             self.assertEqual(0, close[0].data)
+            self.assertEqual(0, exit_code)
             self.assertDictEqual({}, p.processes())
 
     def test_process_with_err_redirected_to_out(self):
@@ -335,6 +339,7 @@ class ProcessTest(unittest.TestCase):
 
             with p.watch('write*') as w:
                 out, err, close = self.gather_output(w)
+                exit_code = w.exit_code['write3']
             self.assertEqual(3, len(out))
             self.assertEqual(0, len(err))
             self.assertEqual(1, len(close))
@@ -349,6 +354,7 @@ class ProcessTest(unittest.TestCase):
             self.assertEqual(b'Executable: ' + cast_bytes(sys.executable) + b'\n', out[1].data)
             self.assertEqual(b'Args: \ndone', out[2].data)
             self.assertEqual(0, close[0].data)
+            self.assertEqual(0, exit_code)
             self.assertDictEqual({}, p.processes())
 
     def test_process_with_no_out(self):
@@ -364,6 +370,7 @@ class ProcessTest(unittest.TestCase):
 
             with p.watch('write*') as w:
                 out, err, close = self.gather_output(w)
+                exit_code = w.exit_code['write3']
             self.assertEqual(0, len(out))
             self.assertEqual(1, len(err))
             self.assertEqual(1, len(close))
@@ -372,6 +379,7 @@ class ProcessTest(unittest.TestCase):
             self.assertLessEqual(err[0].timestamp, close[0].timestamp)
             self.assertEqual(b'done', err[0].data)
             self.assertEqual(0, close[0].data)
+            self.assertEqual(0, exit_code)
             self.assertDictEqual({}, p.processes())
 
     def test_process_with_no_buffer(self):
@@ -387,11 +395,13 @@ class ProcessTest(unittest.TestCase):
 
             with p.watch('write*') as w:
                 out, err, close = self.gather_output(w)
+                exit_code = w.exit_code['write3']
             self.assertEqual(0, len(out))
             self.assertEqual(0, len(err))
             self.assertEqual(1, len(close))
             self.assertEqual('write3', close[0].name)
             self.assertEqual(0, close[0].data)
+            self.assertEqual(0, exit_code)
             self.assertDictEqual({}, p.processes())
 
     def test_two_processes_full_output(self):
@@ -416,6 +426,8 @@ class ProcessTest(unittest.TestCase):
                 select.select([w], [], [])
                 self.assertTrue(w.ready)
                 out, err, close = self.gather_output(w)
+                exit_code0 = w.exit_code['write3.0']
+                exit_code1 = w.exit_code['write3.1']
             self.assertEqual(6, len(out))
             self.assertEqual(2, len(err))
             self.assertEqual(2, len(close))
@@ -428,7 +440,9 @@ class ProcessTest(unittest.TestCase):
             self.assertEqual(b'done', err[0].data)
             self.assertEqual(b'done', err[1].data)
             self.assertEqual(0, close[0].data)
+            self.assertEqual(0, exit_code0)
             self.assertEqual(0, close[1].data)
+            self.assertEqual(0, exit_code1)
             self.assertDictEqual({}, p.processes())
 
     def test_two_processes_wait_for_one_to_close(self):
@@ -554,6 +568,7 @@ class ProcessTest(unittest.TestCase):
                 select.select([w], [], [])
                 self.assertTrue(w.ready)
                 out, err, close = self.gather_output(w)
+                exit_code = w.exit_code['write3']
             self.assertEqual(1, len(out))
             self.assertEqual(1, len(err))
             self.assertEqual(1, len(close))
@@ -566,6 +581,7 @@ class ProcessTest(unittest.TestCase):
             self.assertEqual(b'Args: \n', out[0].data)
             self.assertEqual(b'done', err[0].data)
             self.assertEqual(0, close[0].data)
+            self.assertEqual(0, exit_code)
             self.assertDictEqual({}, p.processes())
 
     def test_one_process_two_parallel_watchers(self):
