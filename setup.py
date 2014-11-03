@@ -1,4 +1,3 @@
-import os
 import sys
 
 try:
@@ -7,10 +6,12 @@ except ImportError:
     from distutils.core import setup
 
 try:
+    # noinspection PyPackageRequirements,PyUnresolvedReferences
     from pypandoc import convert
     read_md = lambda f: convert(f, 'rst')
 except ImportError:
-    print("warning: pypandoc module not found, could not convert Markdown to RST")
+    if 'dist' in sys.argv or 'sdist' in sys.argv:
+        print("warning: pypandoc module not found, could not convert Markdown to RST")
     read_md = lambda f: open(f, 'r').read()
 
 setup(
