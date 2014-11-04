@@ -1,5 +1,7 @@
 import sys
+import os
 
+root_dir = os.path.dirname(__file__)
 try:
     from setuptools import setup
 except ImportError:
@@ -23,7 +25,7 @@ setup(
     maintainer="Scott Maxwell",
     url="https://github.com/scottkmaxwell/papa",
     description="Simple socket and process kernel",
-    long_description=read_md('README.md'),
+    long_description=read_md(os.path.join(root_dir, 'README.md')),
     license="MIT",
     classifiers=["Development Status :: 5 - Production/Stable",
                  "Environment :: Console",
