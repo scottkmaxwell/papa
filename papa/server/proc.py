@@ -5,7 +5,7 @@ import ctypes
 import select
 import fcntl
 from time import time, sleep
-from papa import utils
+from papa import utils, Error
 from papa.utils import extract_name_value_pairs, wildcard_iter, cast_bytes, \
     send_with_retry
 from papa.server.papa_socket import find_socket
@@ -373,7 +373,18 @@ class Process(object):
             output.add(OutputQueue.CLOSED, out)
 
     def __str__(self):
-        return '{0} pid={1} running={2}'.format(self.name, self.pid, self.running)
+        result = ['{0} pid={1} running={2}'.format(self.name, self.pid, self.running)]
+        if self.uid:
+            result.append('uid={0}'.format(self.uid))
+        if self.gid:
+            result.append('gid={0}'.format(self.gid))
+        if self.shell:
+            result.append('shell=True')
+        # if self.env:
+        #     result.extend('env.{0}={1}'.format(key, value) for key, value in self.env.items())
+        if self.args:
+            result.append('args={0}'.format(' '.join(self.args)))
+        return ' '.join(result)
 
     def watch(self):
         # noinspection PyTypeChecker
@@ -406,9 +417,11 @@ You can also specify environment variables by prefixing the name with 'env.' and
 rlimits by prefixing the name with 'rlimit.'
 
 Examples:
-    process sf uid=1001 gid=2000 working_dir=/sf/bin/ output=1m /sf/bin/uwsgi --ini uwsgi-live.ini --socket fd://27 --stats 127.0.0.1:8090
-    process nginx /usr/local/nginx/sbin/nginx
+    make process sf uid=1001 gid=2000 working_dir=/sf/bin/ output=1m /sf/bin/uwsgi --ini uwsgi-live.ini --socket fd://27 --stats 127.0.0.1:8090
+    make process nginx /usr/local/nginx/sbin/nginx
 """
+    if not args:
+        raise Error('Process requires a name')
     name = args.pop(0)
     env = {}
     rlimits = {}
@@ -439,7 +452,13 @@ Examples:
 
 # noinspection PyUnusedLocal
 def processes_command(sock, args, instance):
-    """List all active processes"""
+    """List active processes.
+
+You can list processes by name or PID
+Examples:
+    list process 3698
+    list processes nginx.*
+"""
     instance_globals = instance['globals']
     with instance_globals['lock']:
         return '\n'.join(sorted('{0}'.format(proc) for _, proc in wildcard_iter(instance_globals['processes'], args)))
@@ -447,6 +466,15 @@ def processes_command(sock, args, instance):
 
 # noinspection PyUnusedLocal
 def close_output_command(sock, args, instance):
+    """Close the process output channels and automatically remove the process from
+the list on completion.
+
+You can remove processes by name or PID
+Examples:
+    remove processes uwsgi
+    remove process 10
+"""
+    """Close the process output channels and automatically remove the process when done"""
     instance_globals = instance['globals']
     with instance_globals['lock']:
         for name, p in wildcard_iter(instance_globals['processes'], args, required=True):

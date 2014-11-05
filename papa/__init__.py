@@ -235,7 +235,7 @@ class Papa(object):
                             else:
                                 from papa.server import daemonize_server
                                 log.info('Daemonizing Papa')
-                                daemonize_server(port_or_path)
+                                daemonize_server(port_or_path, fix_title=True)
                             Papa.spawned = True
                 try:
                     self.connection = ClientCommandConnection(self.family, self.location)
@@ -253,7 +253,7 @@ class Papa(object):
     # noinspection PyUnusedLocal
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
-        if self._single_connection_mode and self.t:
+        if self._single_connection_mode and self.t and not exc_type:
             self.t.join()
             Papa.spawned = False
 
@@ -298,8 +298,8 @@ class Papa(object):
     def fileno(self):
         return self.connection.sock.fileno() if self.connection else None
 
-    def sockets(self, *args):
-        result = self._do_command(['sockets'] + list(args))
+    def list_sockets(self, *args):
+        result = self._do_command(['l', 's'] + list(args))
         if not result:
             return {}
         # noinspection PyTypeChecker
@@ -311,7 +311,7 @@ class Papa(object):
                     interface=None, reuseport=None):
         if not name:
             raise utils.Error('Socket requires a name')
-        command = ['socket', name]
+        command = ['m', 's', name]
         if family is not None:
             try:
                 family_name = utils.valid_families_by_number[family]
@@ -336,12 +336,12 @@ class Papa(object):
                 command.append('reuseport=1')
         return self._make_socket_dict(self._do_command(command))[1]
 
-    def close_socket(self, *args):
-        self._do_command(['close', 'socket'] + list(args))
+    def remove_sockets(self, *args):
+        self._do_command(['r', 's'] + list(args))
         return True
 
-    def values(self, *args):
-        result = self._do_command(['values'] + list(args))
+    def list_values(self, *args):
+        result = self._do_command(['l', 'v'] + list(args))
         if not result:
             return {}
         # noinspection PyTypeChecker
@@ -357,31 +357,37 @@ class Papa(object):
         result = self._do_command(['get', name])
         return result or None  # do it this way so that '' becomes None
 
-    def clear(self, *args):
-        self._do_command(['clear'] + list(args))
+    def remove_values(self, *args):
+        self._do_command(['r', 'v'] + list(args))
         return True
 
     @staticmethod
     def _make_process_dict(socket_info):
-        name, args = socket_info.partition(' ')[::2]
-        args = dict(item.partition('=')[::2] for item in args.split(' '))
-        for key in ('pid',):
-            if key in args:
-                args[key] = int(args[key])
-        for key in ('running',):
-            if key in args:
-                args[key] = args[key] == 'True'
+        name, arg_string = socket_info.partition(' ')[::2]
+        args = {}
+        last_key = None
+        for item in arg_string.split(' '):
+            key, delim, value = item.partition('=')
+            if not delim and last_key:
+                args[last_key] += ' ' + key
+            else:
+                last_key = key
+                if key == 'pid':
+                    value = int(value)
+                elif key in ('running', 'shell'):
+                    value = value == 'True'
+                args[key] = value
         return name, args
 
-    def processes(self, *args):
-        result = self._do_command(['processes'] + list(args))
+    def list_processes(self, *args):
+        result = self._do_command(['l', 'p'] + list(args))
         if not result:
             return {}
         # noinspection PyTypeChecker
         return dict(self._make_process_dict(item) for item in result.split('\n'))
 
     def make_process(self, name, executable=None, args=None, env=None, working_dir=None, uid=None, gid=None, rlimits=None, stdout=None, stderr=None, bufsize=None, watch_immediately=None):
-        command = ['process', name]
+        command = ['m', 'p', name]
         append_if_not_none(command, working_dir=working_dir, uid=uid, gid=gid, bufsize=bufsize)
         if watch_immediately:
             command.append('watch=1')
@@ -418,12 +424,12 @@ class Papa(object):
             return self._do_watch(command)
         return self._make_process_dict(self._do_command(command))[1]
 
-    def close_output_channels(self, *args):
-        self._do_command(['close', 'output'] + list(args))
+    def remove_processes(self, *args):
+        self._do_command(['r', 'p'] + list(args))
         return True
 
-    def watch(self, *args):
-        return self._do_watch(['watch'] + list(args))
+    def watch_processes(self, *args):
+        return self._do_watch(['w', 'p'] + list(args))
 
     def _do_watch(self, command):
         self._send_command(command)
@@ -471,32 +477,32 @@ Error = utils.Error
 if __name__ == '__main__':
     set_debug_mode(quit_when_connection_closed=True)
     p = Papa()
-    print('Sockets: {0}'.format(p.sockets()))
-    print('Socket uwsgi: {0}'.format(p.make_socket('uwsgi', interface='eth0')))
-    print('Sockets: {0}'.format(p.sockets()))
-    print('Socket chaussette: {0}'.format(p.make_socket('chaussette', path='/tmp/chaussette.sock')))
-    print('Sockets: {0}'.format(p.sockets()))
-    print('Socket uwsgi6: {0}'.format(p.make_socket('uwsgi6', family=socket.AF_INET6)))
-    print('Sockets: {0}'.format(p.sockets()))
-    try:
-        print('Socket chaussette: {0}'.format(p.make_socket('chaussette')))
-    except Exception as e:
-        print('Caught exception: {0}'.format(e))
-    print('Close chaussette: {0}'.format(p.close_socket('chaussette')))
-    print('Socket chaussette: {0}'.format(p.make_socket('chaussette')))
-    print('Sockets: {0}'.format(p.sockets()))
-    print('Processes: {0}'.format(p.processes()))
-    print('Values: {0}'.format(p.values()))
-    print('Set aack: {0}'.format(p.set('aack', 'bar')))
-    print('Get aack: {0}'.format(p.get('aack')))
-    print('Get bar: {0}'.format(p.get('bar')))
-    print('Values: {0}'.format(p.values()))
-    print('Set bar: {0}'.format(p.set('bar', 'barry')))
-    print('Get bar: {0}'.format(p.get('bar')))
-    print('Values: {0}'.format(p.values()))
-    print('Set bar: {0}'.format(p.set('bar')))
-    print('Get bar: {0}'.format(p.get('bar')))
-    print('Values: {0}'.format(p.values()))
-    print('Set aack: {0}'.format(p.set('aack')))
+    # print('Sockets: {0}'.format(p.list_sockets()))
+    # print('Socket uwsgi: {0}'.format(p.make_socket('uwsgi', interface='eth0')))
+    # print('Sockets: {0}'.format(p.list_sockets()))
+    # print('Socket chaussette: {0}'.format(p.make_socket('chaussette', path='/tmp/chaussette.sock')))
+    # print('Sockets: {0}'.format(p.list_sockets()))
+    # print('Socket uwsgi6: {0}'.format(p.make_socket('uwsgi6', family=socket.AF_INET6)))
+    # print('Sockets: {0}'.format(p.list_sockets()))
+    # try:
+    #     print('Socket chaussette: {0}'.format(p.make_socket('chaussette')))
+    # except Exception as e:
+    #     print('Caught exception: {0}'.format(e))
+    # print('Close chaussette: {0}'.format(p.remove_sockets('chaussette')))
+    # print('Socket chaussette: {0}'.format(p.make_socket('chaussette')))
+    # print('Sockets: {0}'.format(p.list_sockets()))
+    print('Processes: {0}'.format(p.list_processes()))
+    # print('Values: {0}'.format(p.list_values()))
+    # print('Set aack: {0}'.format(p.set('aack', 'bar')))
+    # print('Get aack: {0}'.format(p.get('aack')))
+    # print('Get bar: {0}'.format(p.get('bar')))
+    # print('Values: {0}'.format(p.list_values()))
+    # print('Set bar: {0}'.format(p.set('bar', 'barry')))
+    # print('Get bar: {0}'.format(p.get('bar')))
+    # print('Values: {0}'.format(p.list_values()))
+    # print('Set bar: {0}'.format(p.set('bar')))
+    # print('Get bar: {0}'.format(p.get('bar')))
+    # print('Values: {0}'.format(p.list_values()))
+    # print('Set aack: {0}'.format(p.set('aack')))
     p.close()
     print('Killed papa')

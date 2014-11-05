@@ -2,7 +2,7 @@ import os
 import os.path
 import socket
 import logging
-from papa import utils
+from papa import utils, Error
 from papa.utils import extract_name_value_pairs, wildcard_iter
 
 __author__ = 'Scott Maxwell'
@@ -223,9 +223,11 @@ Options for family=inet or family=inet6
 
 The url must start with "tcp:", "udp:" or "unix:".
 Examples:
-    socket uwsgi port=8080
-    socket chaussette path=/tmp/chaussette.sock
+    make socket uwsgi port=8080
+    make socket chaussette path=/tmp/chaussette.sock
 """
+    if not args:
+        raise Error('Socket requires a name')
     name = args.pop(0)
     kwargs = extract_name_value_pairs(args)
     p = PapaSocket(name, instance, **kwargs)
@@ -235,6 +237,13 @@ Examples:
 
 # noinspection PyUnusedLocal
 def close_socket_command(sock, args, instance):
+    """Close and remove socket or sockets
+
+You can remove sockets by name or file number
+Examples:
+    remove sockets uwsgi
+    remove socket 10
+"""
     instance_globals = instance['globals']
     with instance_globals['lock']:
         for name, p in wildcard_iter(instance_globals['sockets']['by_name'], args, required=True):
@@ -243,7 +252,13 @@ def close_socket_command(sock, args, instance):
 
 # noinspection PyUnusedLocal
 def sockets_command(sock, args, instance):
-    """Return a list of all open sockets"""
+    """List active sockets.
+
+You can list sockets by name or file number
+Examples:
+    list socket 10
+    list socket uwsgi.*
+"""
     instance_globals = instance['globals']
     with instance_globals['lock']:
         return '\n'.join(sorted('{0}'.format(s) for _, s in wildcard_iter(instance_globals['sockets']['by_name'], args)))

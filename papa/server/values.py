@@ -22,6 +22,8 @@ Examples:
     instance_globals = instance['globals']
     values = instance_globals['values']
     with instance_globals['lock']:
+        if not args or args == ['*']:
+            raise Error('Value requires a name')
         name = args.pop(0)
         if args:
             values[name] = ' '.join(args)
@@ -30,15 +32,15 @@ Examples:
 
 
 # noinspection PyUnusedLocal
-def clear_command(sock, args, instance):
-    """Clear a named value or set of values. You cannot 'clear *'.
+def remove_command(sock, args, instance):
+    """Remove a named value or set of values. You cannot 'remove *'.
 
 Examples:
-    clear count
-    clear circus.*
+    remove count
+    remove circus.*
 """
     if not args or args == ['*']:
-        raise Error('You cannot clear all variables')
+        raise Error('You cannot remove all variables')
     instance_globals = instance['globals']
     values = instance_globals['values']
     with instance_globals['lock']:
@@ -53,6 +55,8 @@ def get_command(sock, args, instance):
 Example:
     get count
 """
+    if not args:
+        raise Error('Value requires a name')
     instance_globals = instance['globals']
     with instance_globals['lock']:
         return instance_globals['values'].get(args[0])
