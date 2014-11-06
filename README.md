@@ -127,8 +127,8 @@ with "circus." and the Supervisor process manager can prefix all names with
 
 If you need to have multiple copies of something, put a number after a dot
 for each of those as well. For instance, if you are starting 3 waitress
-instances in circus, call them `circus.waitress.0`, `circus.waitress.1`, and
-`circus.waitress.2`. That way you can query for all processes named `circus.*`
+instances in circus, call them `circus.waitress.1`, `circus.waitress.2`, and
+`circus.waitress.3`. That way you can query for all processes named `circus.*`
 to see all processes managed by circus, or query for `circus.waitress.*` to
 see all waitress processes managed by circus.
 
@@ -165,15 +165,18 @@ You should get a welcome message and a prompt. Type "help" to get help. Type
 
 The most useful commands from a monitoring standpoint are:
 
-- sockets
-- processes
-- values
+- list sockets
+- list processes
+- list values
 
 All of these can by used with no arguments, or can be followed by a list of
 names, including wildcards. For instance, to see all of the values in the
 circus and supervisor namespaces, do this:
 
-    values circus.* supervisor.*
+    list values circus.* supervisor.*
+
+You can abbreviate every command as short as you like. So "l p" means
+"list processes" and "h l p" means "help list processes"
 
 
 Creating a Connection
@@ -201,12 +204,12 @@ If you want to just fire off a few commands and leave, it is better to use the
     from papa import Papa
 	
     with Papa() as p:
-        print(p.sockets())
+        print(p.list_sockets())
         print(p.make_socket('uwsgi', port=8080))
-        print(p.sockets())
+        print(p.list_sockets())
         print(p.make_process('uwsgi', 'env/bin/uwsgi', args=('--ini', 'uwsgi.ini', '--socket', 'fd://$(socket.uwsgi.fileno)'), working_dir='/Users/aackbar/awesome', env=os.environ))
         print(p.make_process('http_receiver', sys.executable, args=('http.py', '$(socket.uwsgi.port)'), working_dir='/Users/aackbar/awesome', env=os.environ))
-        print(p.processes())
+        print(p.list_processes())
 
 This will make a new connection, do a bunch of work, then close the connection.
 
@@ -216,15 +219,15 @@ Socket Commands
 
 There are 3 socket commands.
 
-`p.sockets(*args)`
+`p.list_sockets(*args)`
 ------------------
 
 The `sockets` command takes a list of socket names to get info about. All of
 these are valid:
 
-- `p.sockets()`
-- `p.sockets('circus.*')`
-- `p.sockets('circus.uwsgi', 'circus.nginx.*', 'circus.logger')`
+- `p.list_sockets()`
+- `p.list_sockets('circus.*')`
+- `p.list_sockets('circus.uwsgi', 'circus.nginx.*', 'circus.logger')`
 
 A `dict` is returned with socket names as keys and socket details as values.
 
@@ -252,16 +255,16 @@ exception if some parameters differ.
 
 See the `make_sockets` method of the Papa object for other parameters.
 
-`p.close_socket(*args)`
+`p.remove_sockets(*args)`
 -----------------------
 
-The `close_socket` command also takes a list of socket names. All of these are
+The `remove_sockets` command also takes a list of socket names. All of these are
 valid:
 
-- `p.close_socket('circus.*')`
-- `p.close_socket('circus.uwsgi', 'circus.nginx.*', 'circus.logger')`
+- `p.remove_sockets('circus.*')`
+- `p.remove_sockets('circus.uwsgi', 'circus.nginx.*', 'circus.logger')`
 
-Closing a socket will prevent any future processes from using it, but any
+Removing a socket will prevent any future processes from using it, but any
 processes that were already started using the file descriptor of the socket will
 continue to use the copy they inherited.
 
@@ -271,14 +274,15 @@ Value Commands
 
 There are 4 value commands.
 
-`p.values(*args)`
+`p.list_values(*args)`
 -----------------
 
-The `values` command takes a list of values to retrieve. All of these are valid:
+The `list_values` command takes a list of values to retrieve. All of these are
+valid:
 
-- `p.values()`
-- `p.values('circus.*')`
-- `p.values('circus.uwsgi', 'circus.nginx.*', 'circus.logger')`
+- `p.list_values()`
+- `p.list_values('circus.*')`
+- `p.list_list_values('circus.uwsgi', 'circus.nginx.*', 'circus.logger')`
 
 A `dict` will be returned with all matching names and values.
 
@@ -300,15 +304,15 @@ To retrieve a value, do this:
 
 If no value is stored by that name, `None` will be returned.
 
-`p.clear(*args)`
+`p.remove_values(*args)`
 ----------------
 
-To clear a value or values, do something like this:
+To remove a value or values, do something like this:
 
-- `p.clear('circus.*')`
-- `p.clear('circus.uwsgi', 'circus.nginx.*', 'circus.logger')`
+- `p.remove_values('circus.*')`
+- `p.remove_values('circus.uwsgi', 'circus.nginx.*', 'circus.logger')`
 
-You cannot clear all variables so passing no names or passing `*` will raise
+You cannot remove all variables so passing no names or passing `*` will raise
 a `papa.Error` exception.
 
 
@@ -317,15 +321,15 @@ Process Commands
 
 There are 4 process commands:
 
-`p.processes(*args)`
+`p.list_processes(*args)`
 --------------------
 
-The `processes` command takes a list of process names to get info about. All of
-these are valid:
+The `list_processes` command takes a list of process names to get info about.
+All of these are valid:
 
-- `p.processes()`
-- `p.processes('circus.*')`
-- `p.processes('circus.uwsgi', 'circus.nginx.*', 'circus.logger')`
+- `p.list_processes()`
+- `p.list_processes('circus.*')`
+- `p.list_processes('circus.uwsgi', 'circus.nginx.*', 'circus.logger')`
 
 A `dict` is returned with process names as keys and process details as values.
 
@@ -350,8 +354,8 @@ default). You can also pass `papa.STDOUT` to `stderr` to merge the streams.
 
 If you pass `bufsize=0`, not output will be recorded. Otherwise, bufsize can be
 the number of bytes, or a number followed by 'k', 'm' or 'g'. If you want a
-2 MB buffer, you can pass `bufsize='2m'`, for instance. If you do not retrieve the
-output quicky enough and the buffer overflows, older data is removed to make
+2 MB buffer, you can pass `bufsize='2m'`, for instance. If you do not retrieve
+the output quicky enough and the buffer overflows, older data is removed to make
 room.
 
 If you specify `uid`, it can be either the numeric id of the user or the
@@ -383,21 +387,21 @@ the same as doing `p.make_process(name, ...)` followed immediately by
 If all you want to do is launch an application and monitor its output, this is
 a good way to go.
 
-`p.close_output_channels(*args)`
+`p.remove_processes(*args)`
 --------------------------------
 
 If you do not care about retrieving the output or the exit code for a process,
-you can use `close_output_channels` to tell the papa kernel to close the output
+you can use `remove_processes` to tell the papa kernel to close the output
 buffers and automatically remove the process from the process list when it
 exits.
 
-- `p.close_output_channels('circus.logger')`
-- `p.close_output_channels('circus.uwsgi', 'circus.nginx.*', 'circus.logger')`
+- `p.remove_processes('circus.logger')`
+- `p.remove_processes('circus.uwsgi', 'circus.nginx.*', 'circus.logger')`
 
-`p.watch(*args)`
+`p.watch_processes(*args)`
 ----------------
 
-The `watch` command returns a `Watcher` object for the specified process or
+The `watch_processes` command returns a `Watcher` object for the specified process or
 processes. That object uses a separate socket to retrieve the output of
 the processes it is watching.
 
@@ -414,8 +418,8 @@ status, all of that can occur with a single connection.
 The Watcher object
 ==================
 
-When you use `watch` or when you do `make_process` with `watch_immediately=True`,
-you get back a `Watcher` object.
+When you use `watch_processes` or when you do `make_process` with
+`watch_immediately=True`, you get back a `Watcher` object.
 
 You can use watchers manually or with a context manager. Here is an example
 without a context manager:
@@ -436,7 +440,7 @@ without a context manager:
 If you are running your logger in a separate thread anyway, you might want to
 just use a context manager, like this:
 
-    with p.watch('aack') as watcher:
+    with p.watch_processes('aack') as watcher:
         while watcher:
             out, err, closed = watcher.read()  # block until something arrives
             ... save it ...
@@ -447,9 +451,9 @@ like this:
 
     watchers = []
     
-    watchers.append(p.watch('circus.uwsgi'))
-    watchers.append(p.watch('circus.nginx'))
-    watchers.append(p.watch('circus.mongos.*'))
+    watchers.append(p.watch_processes('circus.uwsgi'))
+    watchers.append(p.watch_processes('circus.nginx'))
+    watchers.append(p.watch_processes('circus.mongos.*'))
     
     while watchers:
         ready_watchers = select.select(watchers, [], [])[0]  # wait for one of these
@@ -464,7 +468,7 @@ like this:
 Of course, in the above example it would have been even more efficient to just
 use a single watcher, like this:
 
-    with p.watch('circus.uwsgi', 'circus.nginx', 'circus.mongos.*') as watcher:
+    with p.watch_processes('circus.uwsgi', 'circus.nginx', 'circus.mongos.*') as watcher:
         while watcher:
             out, err, closed = watcher.read()
             ... save it ...
@@ -526,3 +530,27 @@ You will get very screwy results if you have multiple watchers for the same
 process. Each will get the available data, then acknowledge receipt at some
 point, removing that data from the queue. Based on timing, both will get
 overlapping results, but neither is likely to get everything.
+
+
+Shutting Down
+=============
+
+Papa is meant to be a long-lived process and it is meant to be usable by
+multiple client apps. If you would like to shut Papa down, you can try
+`p.exit_if_idle()`. This call will only exit Papa if there are no processes,
+sockets or values. So if your app cleaned everything up and no other app is
+using Papa, `exit_if_idle` will allow Papa to die. It will return `True` if
+Papa has indicated that it will exit when the connection closes.
+
+If you want to do a complete cleanup, kill all of your processes however you
+like, then do:
+
+    p.remove_processes('myapp.*')
+    p.remove_sockets('myapp.*')
+    p.remove_values('myapp.*')
+    if p.exit_if_idle():
+        print('Papa says it will shutdown!')
+
+WARNING: If another process connects to Papa before the connection is closed,
+Papa will remain open. The `exit_if_idle` command will drop the connection if
+it returns True so this is a very narrow window of opportunity for failure.
