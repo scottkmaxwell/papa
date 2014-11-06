@@ -31,9 +31,6 @@ except ImportError:
 
 log = logging.getLogger('papa.server')
 
-active_threads = []
-inactive_threads = []
-
 
 class CloseSocket(Exception):
     def __init__(self, final_message=None):
@@ -42,13 +39,23 @@ class CloseSocket(Exception):
 
 
 # noinspection PyUnusedLocal
-def quit_command(sock, args, instance_globals):
+def quit_command(sock, args, instance):
     """Close the client socket"""
     raise CloseSocket('ok\n')
 
 
 # noinspection PyUnusedLocal
-def help_command(sock, args, instance_globals):
+def exit_if_idle_command(sock, args, instance):
+    """Exit papa if there are no processes, sockets or values"""
+    instance_globals = instance['globals']
+    if not is_idle(instance_globals):
+        return "not idle"
+    instance_globals['exit_if_idle'] = True
+    raise CloseSocket('Exiting papa!\n> ')
+
+
+# noinspection PyUnusedLocal
+def help_command(sock, args, instance):
     """Show help info"""
     if args:
         try:
@@ -72,6 +79,7 @@ def help_command(sock, args, instance_globals):
     remove processes - Remove values by name
     -----------------------------------------------------
     quit - Close the client session
+    exit-if-idle Exit papa if there are no processes, sockets or values
     help - Type "help <cmd>" for more information
 
 NOTE: All of these commands may be abbreviated. Type at least one character of
@@ -178,6 +186,7 @@ top_level_commands = {
     'set': values.set_command,
     'get': values.get_command,
     'quit': quit_command,
+    'exit-if-idle': exit_if_idle_command,
     'help': help_command,
 }
 
@@ -188,6 +197,8 @@ def lookup_command(args, commands=top_level_commands, primary_command=None, allo
         for item in sorted(commands):
             if item.startswith(cmd):
                 cmd = item
+                if cmd == 'exit-if-idle':
+                    raise Error('You cannot abbreviate "exit-if-idle"')
                 break
         else:
             if primary_command:
@@ -278,8 +289,8 @@ def chat_with_a_client(sock, addr, instance_globals, container):
 
     if container:
         thread_object = container[0]
-        active_threads.remove(thread_object)
-        inactive_threads.append((addr, thread_object))
+        instance_globals['active_threads'].remove(thread_object)
+        instance_globals['inactive_threads'].append((addr, thread_object))
 
 
 def cleanup(instance_globals):
@@ -287,14 +298,27 @@ def cleanup(instance_globals):
         papa_socket.cleanup(instance_globals)
 
 
+def is_idle(instance_globals):
+    with instance_globals['lock']:
+        return not instance_globals['processes']\
+               and not instance_globals['sockets']['by_name']\
+               and not instance_globals['sockets']['by_path']\
+               and not instance_globals['values']
+
+
 def socket_server(port_or_path, single_socket_mode=False):
     instance_globals = {
         'processes': {},
         'sockets': {'by_name': {}, 'by_path': {}},
         'values': {},
-        'lock': Lock()
+        'active_threads': [],
+        'inactive_threads': [],
+        'lock': Lock(),
+        'exit_if_idle': False,
     }
-    atexit.register(cleanup, (instance_globals,))
+    def local_cleanup():
+        cleanup(instance_globals)
+    atexit.register(local_cleanup)
     try:
         if isinstance(port_or_path, str):
             try:
@@ -326,27 +350,30 @@ def socket_server(port_or_path, single_socket_mode=False):
             sock, addr = s.accept()
             log.info('Started client session with %s:%d', addr[0], addr[1])
             container = []
+            instance_globals['exit_if_idle'] = False
             t = Thread(target=chat_with_a_client, args=(sock, addr, instance_globals, container))
             container.append(t)
-            active_threads.append(t)
+            instance_globals['active_threads'].append(t)
             t.daemon = True
             t.start()
             s.settimeout(.5)
         except socket.timeout:
             pass
-        while inactive_threads:
-            addr, t = inactive_threads.pop()
+        while instance_globals['inactive_threads']:
+            addr, t = instance_globals['inactive_threads'].pop()
             t.join()
             log.info('Closed client session with %s:%d', addr[0], addr[1])
-        if not active_threads:
+        if not instance_globals['active_threads']:
             if single_socket_mode:
+                break
+            if instance_globals['exit_if_idle'] and is_idle(instance_globals):
                 break
             s.settimeout(None)
     s.close()
     papa_socket.cleanup(instance_globals)
     try:
         # noinspection PyUnresolvedReferences
-        atexit.unregister(cleanup)
+        atexit.unregister(local_cleanup)
     except AttributeError:
         del instance_globals['lock']
 

@@ -374,6 +374,8 @@ class Papa(object):
                 last_key = key
                 if key == 'pid':
                     value = int(value)
+                elif key == 'started':
+                    value = float(value)
                 elif key in ('running', 'shell'):
                     value = value == 'True'
                 args[key] = value
@@ -430,6 +432,10 @@ class Papa(object):
 
     def watch_processes(self, *args):
         return self._do_watch(['w', 'p'] + list(args))
+
+    def exit_if_idle(self):
+        result = self._do_command('exit-if-idle')
+        return result
 
     def _do_watch(self, command):
         self._send_command(command)
