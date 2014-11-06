@@ -146,9 +146,11 @@ class Process(object):
         self.rlimits = rlimits
         self.working_dir = working_dir
         self.shell = shell
-        self.pid = 0
         self.bufsize = convert_size_string_to_bytes(bufsize)
+
+        self.pid = 0
         self.running = False
+        self.started = 0
 
         if self.bufsize:
             self.out = int(stdout)
@@ -220,11 +222,14 @@ class Process(object):
         if existing:
             if self == existing:
                 self.pid = existing.pid
+                self.running = existing.running
+                self.started = existing.started
             else:
                 raise utils.Error('Process for {0} has already been created - {1}'.format(self.name, str(existing)))
         else:
             managed_sockets = []
             fixed_args = []
+            self.started = time()
             for arg in self.args:
                 if '$(socket.' in arg:
                     start = arg.find('$(socket.') + 9
@@ -373,7 +378,7 @@ class Process(object):
             output.add(OutputQueue.CLOSED, out)
 
     def __str__(self):
-        result = ['{0} pid={1} running={2}'.format(self.name, self.pid, self.running)]
+        result = ['{0} pid={1} running={2} started={3}'.format(self.name, self.pid, self.running, self.started)]
         if self.uid:
             result.append('uid={0}'.format(self.uid))
         if self.gid:
