@@ -367,6 +367,7 @@ def socket_server(port_or_path, single_socket_mode=False):
             if single_socket_mode:
                 break
             if instance_globals['exit_if_idle'] and is_idle(instance_globals):
+                log.info('Exiting due to exit_if_idle request')
                 break
             s.settimeout(None)
     s.close()

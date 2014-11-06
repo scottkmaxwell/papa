@@ -37,7 +37,7 @@ except NameError as e:
 
 __author__ = 'Scott Maxwell'
 
-logger = logging.getLogger('papa.server')
+log = logging.getLogger('papa.server')
 
 
 def convert_size_string_to_bytes(s):
@@ -334,6 +334,7 @@ class Process(object):
             self._processes[self.name] = self
             self.pid = self._worker.pid
             self._output = OutputQueue(self.bufsize)
+            log.info('Created process %s', self)
 
             self.running = True
             self._thread = Thread(target=self._watch)
@@ -373,6 +374,7 @@ class Process(object):
         if self._auto_close:
             instance_globals = self.instance['globals']
             with instance_globals['lock']:
+                log.info('Removed process %s', self)
                 instance_globals['processes'].pop(self.name, None)
         else:
             output.add(OutputQueue.CLOSED, out)
@@ -531,7 +533,9 @@ def _do_watch(sock, procs, instance):
             if closed:
                 with instance_globals['lock']:
                     for name in closed:
-                        procs.pop(name, None)
+                        closed_proc = procs.pop(name, None)
+                        if closed_proc and 'p' in closed_proc:
+                            log.info('Removed process %s', closed_proc['p'])
                         all_processes.pop(name, None)
             if not procs:
                 return 'Nothing left to watch'
