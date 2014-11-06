@@ -434,8 +434,7 @@ class Papa(object):
         return self._do_watch(['w', 'p'] + list(args))
 
     def exit_if_idle(self):
-        result = self._do_command('exit-if-idle')
-        return result
+        return self._do_command('exit-if-idle').startswith('Exiting')
 
     def _do_watch(self, command):
         self._send_command(command)
