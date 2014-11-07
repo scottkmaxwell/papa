@@ -107,8 +107,14 @@ class Watcher(object):
                 send_with_retry(self.connection.sock, b'q\n')
                 self._need_ack = False
                 self.connection.get_full_response()
-            if not self.papa_object.connection:
-                self.papa_object.connection = self.connection
+
+                # we can only recover the connection if we were able to send
+                # the quit ack. otherwise close the connection and let the
+                # socket die
+                if not self.papa_object.connection:
+                    self.papa_object.connection = self.connection
+                else:
+                    self.connection.close()
             else:
                 self.connection.close()
             self.connection = None
