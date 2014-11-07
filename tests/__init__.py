@@ -604,7 +604,7 @@ class ProcessTest(unittest.TestCase):
             self.assertEqual(1, len(list(reply.keys())))
             self.assertEqual('write3', list(reply.keys())[0])
             self.assertIn('pid', list(reply.values())[0])
-            sleep(.5)
+            sleep(.7)
 
             with p.watch_processes('write*') as w:
                 select.select([w], [], [])
@@ -759,7 +759,7 @@ class ProcessTest(unittest.TestCase):
             self.assertEqual(b'test\n', msg)
             s.close()
 
-            sleep(.2)
+            sleep(.4)
             p.remove_processes('echo')
             self.assertDictEqual({}, p.list_processes())
 
@@ -780,7 +780,7 @@ class ProcessTest(unittest.TestCase):
             self.assertEqual(b'test\n', msg)
             s.close()
 
-            sleep(.2)
+            sleep(.4)
             self.assertDictEqual({}, p.list_processes())
 
     def test_bad_socket_reference(self):
