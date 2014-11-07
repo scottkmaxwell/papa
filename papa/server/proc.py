@@ -504,6 +504,8 @@ def _do_watch(sock, procs, instance):
     instance_globals = instance['globals']
     all_processes = instance_globals['processes']
     connection = instance['connection']
+    poller = select.poll()
+    poller.register(sock.fileno(), select.POLLHUP)
     while True:
         data = []
         for name, proc in procs.items():
@@ -541,5 +543,5 @@ def _do_watch(sock, procs, instance):
                 return 'Nothing left to watch'
             if one_line == 'q':
                 return 'Stopped watching'
-        else:
-            sleep(.1)
+        elif poller.poll(.1):
+            return 'Client closed connection'
