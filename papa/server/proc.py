@@ -3,6 +3,7 @@ import sys
 import logging
 import ctypes
 import select
+import socket
 import fcntl
 from time import time, sleep
 from papa import utils, Error
@@ -500,12 +501,37 @@ def watch_command(sock, args, instance):
     return _do_watch(sock, procs, instance)
 
 
+if hasattr(select, 'poll'):
+    class Poller(object):
+        def __init__(self, sock):
+            self.p = select.poll()
+            self.p.register(sock.fileno(), select.POLLHUP)
+
+        def poll(self, timeout):
+            return self.p.poll(timeout)
+
+else:
+    class Poller(object):
+        def __init__(self, sock):
+            self.sock = sock
+
+        def poll(self, timeout):
+            self.sock.setblocking(0)
+            try:
+                b = self.sock.recv(1)
+                if not b:
+                    return True
+            except socket.error:
+                pass
+            self.sock.setblocking(1)
+            sleep(timeout)
+
+
 def _do_watch(sock, procs, instance):
     instance_globals = instance['globals']
     all_processes = instance_globals['processes']
     connection = instance['connection']
-    poller = select.poll()
-    poller.register(sock.fileno(), select.POLLHUP)
+    poller = Poller(sock)
     while True:
         data = []
         for name, proc in procs.items():
