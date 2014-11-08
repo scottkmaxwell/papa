@@ -227,7 +227,7 @@ class Papa(object):
         try:
             self.connection = ClientCommandConnection(self.family, self.location)
         except Exception:
-            for i in range(50):
+            for i in range(100):
                 if not Papa.spawned:
                     with Papa.spawn_lock:
                         if not Papa.spawned:
@@ -249,8 +249,8 @@ class Papa(object):
                 except Exception:
                     sleep(.1)
             if not self.connection:
-                log.error('Could not connect to Papa in 5 seconds')
-                raise utils.Error('Could not connect to Papa in 5 seconds')
+                log.error('Could not connect to Papa in 10 seconds')
+                raise utils.Error('Could not connect to Papa in 10 seconds')
         self.connection.get_full_response()
 
     def __enter__(self):
