@@ -209,6 +209,7 @@ class Papa(object):
 
     def __init__(self, port_or_path=None):
         port_or_path = port_or_path or self._default_port_or_path
+        self.port_or_path = port_or_path
         if isinstance(port_or_path, str):
             if not hasattr(socket, 'AF_UNIX'):
                 raise NotImplementedError('Unix sockets are not supported on'
@@ -224,34 +225,7 @@ class Papa(object):
         # Try to connect to an existing Papa
         self.connection = None
         self.t = None
-        try:
-            self.connection = ClientCommandConnection(self.family, self.location)
-        except Exception:
-            for i in range(100):
-                if not Papa.spawned:
-                    with Papa.spawn_lock:
-                        if not Papa.spawned:
-                            if self._debug_mode:
-                                from papa.server import socket_server
-                                from threading import Thread
-                                t = Thread(target=socket_server, args=(port_or_path, self._single_connection_mode))
-                                t.daemon = True
-                                t.start()
-                                self.t = t
-                            else:
-                                from papa.server import daemonize_server
-                                log.info('Daemonizing Papa')
-                                daemonize_server(port_or_path, fix_title=True)
-                            Papa.spawned = True
-                try:
-                    self.connection = ClientCommandConnection(self.family, self.location)
-                    break
-                except Exception:
-                    sleep(.1)
-            if not self.connection:
-                log.error('Could not connect to Papa in 10 seconds')
-                raise utils.Error('Could not connect to Papa in 10 seconds')
-        self.connection.get_full_response()
+        self._connect(True)
 
     def __enter__(self):
         return self
@@ -263,16 +237,39 @@ class Papa(object):
             self.t.join()
             Papa.spawned = False
 
-    def _make_extra_connection(self):
-        for i in range(50):
-            try:
-                self.connection = ClientCommandConnection(self.family, self.location)
-                break
-            except Exception:
-                sleep(.1)
-        else:
-            raise utils.Error('Could not connect to Papa in 5 seconds')
-        self.connection.get_full_response()
+    def _connect(self, allow_papa_spawn=False):
+        try:
+            self.connection = ClientCommandConnection(self.family, self.location)
+            self.connection.get_full_response()
+        except Exception:
+            for i in range(100):
+                if allow_papa_spawn and not Papa.spawned:
+                    self._spawn_papa_server()
+                try:
+                    self.connection = ClientCommandConnection(self.family, self.location)
+                    self.connection.get_full_response()
+                    break
+                except Exception:
+                    sleep(.1)
+            if not self.connection:
+                log.error('Could not connect to Papa in 10 seconds')
+                raise utils.Error('Could not connect to Papa in 10 seconds')
+
+    def _spawn_papa_server(self):
+        with Papa.spawn_lock:
+            if not Papa.spawned:
+                if self._debug_mode:
+                    from papa.server import socket_server
+                    from threading import Thread
+                    t = Thread(target=socket_server, args=(self.port_or_path, self._single_connection_mode))
+                    t.daemon = True
+                    t.start()
+                    self.t = t
+                else:
+                    from papa.server import daemonize_server
+                    log.info('Daemonizing Papa')
+                    daemonize_server(self.port_or_path, fix_title=True)
+                Papa.spawned = True
 
     def _attempt_to_connect(self):
         # Try to connect to an existing Papa
@@ -284,12 +281,12 @@ class Papa(object):
 
     def _send_command(self, command):
         if not self.connection:
-            self._make_extra_connection()
+            self._connect()
         self.connection.send_command(command)
 
     def _do_command(self, command):
         if not self.connection:
-            self._make_extra_connection()
+            self._connect()
         return self.connection.do_command(command)
 
     @staticmethod
