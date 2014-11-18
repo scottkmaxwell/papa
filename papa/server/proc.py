@@ -5,7 +5,7 @@ import ctypes
 import select
 import socket
 import fcntl
-from time import time, sleep
+from time import time
 from papa import utils, Error
 from papa.utils import extract_name_value_pairs, wildcard_iter, cast_bytes, \
     send_with_retry
@@ -78,10 +78,11 @@ class OutputQueue(object):
                     self.q.append(data_tuple)
 
     def retrieve(self):
-        with self.lock:
-            if self.q:
-                l = list(self.q)
-                return l[-1].timestamp, l
+        if self.q:
+            with self.lock:
+                if self.q:
+                    l = list(self.q)
+                    return l[-1].timestamp, l
         return 0, None
 
     def remove(self, timestamp):
@@ -508,7 +509,7 @@ if hasattr(select, 'poll'):
             self.p.register(sock.fileno(), select.POLLHUP)
 
         def poll(self, timeout):
-            return self.p.poll(timeout)
+            return self.p.poll(timeout * 1000)
 
 else:
     class Poller(object):
@@ -516,15 +517,15 @@ else:
             self.sock = sock
 
         def poll(self, timeout):
-            self.sock.setblocking(0)
-            try:
-                b = self.sock.recv(1)
-                if not b:
-                    return True
-            except socket.error:
-                pass
-            self.sock.setblocking(1)
-            sleep(timeout)
+            if not select.select([self.sock], [], [], timeout)[0]:
+                self.sock.setblocking(0)
+                try:
+                    b = self.sock.recv(1)
+                    if not b:
+                        return True
+                except socket.error:
+                    pass
+                self.sock.setblocking(1)
 
 
 def _do_watch(sock, procs, instance):
@@ -532,6 +533,7 @@ def _do_watch(sock, procs, instance):
     all_processes = instance_globals['processes']
     connection = instance['connection']
     poller = Poller(sock)
+    delay = .1
     while True:
         data = []
         for name, proc in procs.items():
@@ -546,6 +548,7 @@ def _do_watch(sock, procs, instance):
                         data.append(item.data)
                 proc['t'] = t
         if data:
+            delay = .05
             data.append(b'] ')
             out = b'\n'.join(data)
             send_with_retry(sock, out)
@@ -569,5 +572,8 @@ def _do_watch(sock, procs, instance):
                 return 'Nothing left to watch'
             if one_line == 'q':
                 return 'Stopped watching'
-        elif poller.poll(.1):
-            return 'Client closed connection'
+        else:
+            if poller.poll(delay):
+                return 'Client closed connection'
+            if delay < 1.0:
+                delay += .05
