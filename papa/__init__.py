@@ -1,7 +1,7 @@
 import os.path
 import socket
 from threading import Lock
-from time import sleep
+from time import time, sleep
 from subprocess import PIPE, STDOUT
 from collections import namedtuple
 import logging
@@ -152,6 +152,7 @@ class ClientCommandConnection(object):
     def get_full_response(self):
         data = self.data
         self.data = b''
+        # noinspection PyTypeChecker
         while not data.endswith(b'\n> '):
             new_data = recv_with_retry(self.sock)
             if not new_data:
@@ -203,13 +204,15 @@ class Papa(object):
     _debug_mode = False
     _single_connection_mode = False
     _default_port_or_path = 20202
+    _default_connection_timeout = 10
 
     spawn_lock = Lock()
     spawned = False
 
-    def __init__(self, port_or_path=None):
+    def __init__(self, port_or_path=None, connection_timeout=None):
         port_or_path = port_or_path or self._default_port_or_path
         self.port_or_path = port_or_path
+        self.connection_timeout = connection_timeout or self._default_connection_timeout
         if isinstance(port_or_path, str):
             if not hasattr(socket, 'AF_UNIX'):
                 raise NotImplementedError('Unix sockets are not supported on'
@@ -242,7 +245,8 @@ class Papa(object):
             self.connection = ClientCommandConnection(self.family, self.location)
             self.connection.get_full_response()
         except Exception:
-            for i in range(100):
+            try_until = time() + self.connection_timeout
+            while time() < try_until:
                 if allow_papa_spawn and not Papa.spawned:
                     self._spawn_papa_server()
                 try:
@@ -252,8 +256,9 @@ class Papa(object):
                 except Exception:
                     sleep(.1)
             if not self.connection:
-                log.error('Could not connect to Papa in 10 seconds')
-                raise utils.Error('Could not connect to Papa in 10 seconds')
+                message = 'Could not connect to Papa in {0} seconds'.format(self.connection_timeout)
+                log.error(message)
+                raise utils.Error(message)
 
     def _spawn_papa_server(self):
         with Papa.spawn_lock:
@@ -465,6 +470,10 @@ class Papa(object):
     def set_default_path(cls, path):
         cls._default_port_or_path = path
 
+    @classmethod
+    def set_default_connection_timeout(cls, connection_timeout):
+        cls._default_connection_timeout = connection_timeout
+
 
 def set_debug_mode(mode=True, quit_when_connection_closed=False):
     return Papa.set_debug_mode(mode, quit_when_connection_closed)
@@ -476,6 +485,11 @@ def set_default_port(port):
 
 def set_default_path(path):
     return Papa.set_default_path(path)
+
+
+def set_default_connection_timeout(connection_timeout):
+    return Papa.set_default_connection_timeout(connection_timeout)
+
 
 from papa import utils
 s = utils.cast_string
