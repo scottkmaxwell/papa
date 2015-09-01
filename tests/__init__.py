@@ -1,3 +1,4 @@
+from random import randint
 import os
 import sys
 import os.path
@@ -796,4 +797,5 @@ class ProcessTest(unittest.TestCase):
             self.assertRaises(papa.Error, p.make_process, 'bad', sys.executable, working_dir=here + '-blah')
 
 if __name__ == '__main__':
+    papa.set_default_port(randint(20000, 21000))
     unittest.main()
