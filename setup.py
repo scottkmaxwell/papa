@@ -16,7 +16,7 @@ except ImportError:
 
 setup(
     name="papa",
-    version="1.0.5",
+    version="1.0.6",
     packages=["papa", "papa.server", "tests"],
     author="Scott Maxwell",
     author_email="scott@codecobblers.com",
