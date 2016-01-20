@@ -340,7 +340,7 @@ def socket_server(port_or_path, single_socket_mode=False):
             except socket.error as e:
                 raise Error('Bind failed or port {0}: {1}'.format(port_or_path, e))
     except Exception as e:
-        log.error(e)
+        log.exception(e)
         sys.exit(1)
 
     s.listen(5)
@@ -348,7 +348,7 @@ def socket_server(port_or_path, single_socket_mode=False):
     while True:
         try:
             sock, addr = s.accept()
-            log.info('Started client session with %s:%d', addr[0], addr[1])
+            log.info('Started client session with %s', addr)
             container = []
             instance_globals['exit_if_idle'] = False
             t = Thread(target=chat_with_a_client, args=(sock, addr, instance_globals, container))
@@ -362,7 +362,7 @@ def socket_server(port_or_path, single_socket_mode=False):
         while instance_globals['inactive_threads']:
             addr, t = instance_globals['inactive_threads'].pop()
             t.join()
-            log.info('Closed client session with %s:%d', addr[0], addr[1])
+            log.info('Closed client session with %s', addr)
         if not instance_globals['active_threads']:
             if single_socket_mode:
                 break
@@ -426,7 +426,7 @@ def main():
         try:
             socket_server(args.unix_socket or args.port)
         except Exception as e:
-            log.error(e)
+            log.exception(e)
 
 if __name__ == '__main__':
     main()
