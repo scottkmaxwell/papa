@@ -22,7 +22,7 @@ ProcessOutput = namedtuple('ProcessOutput', 'name timestamp data')
 
 def wrap_trailing_slash(value):
     value = str(value)
-    if value[-1] == '\\':
+    if value.endswith('\\'):
         value = '"{0}"'.format(value)
     return value
 
